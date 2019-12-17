@@ -36,6 +36,62 @@ def log(message, file_name='log.txt'):
    f.write(datetime.now() + message + '\n')
    f.close()
 
+from datetime import datetime, timedelta
+def buy(figi, qty, currency, price):
+    with open('bought.txt', 'a') as g:
+            g.write(datetime.now().strftime('%Y-%m-%d %H:%M:%S') + 
+                   ' ' + str(figi).ljust(8, ' ') +
+                   ' ' + str(qty).ljust(5, ' ') +
+                   ' ' + str(currency).ljust(4, ' ') +
+                   ' ' + str(price) + '\n')
+    return price*qty
+
+
+def get_bought():
+    b = []
+    with open('bought.txt', 'r') as f:
+        for item in f:
+            b.append({'time':item[0:19],
+                      'figi':item[20:29].rstrip(),
+                      'qty':int(item[29:35]),
+                      'currency':item[35:38],
+                      'price':float(item[40:].rstrip())
+                      })
+    return b
+
+
+def sell(figi, qty, price):
+    part_qty = 0
+    bb = get_bought()
+    with open('bought.txt', 'w') as f:
+        for b in (bb):
+            if b['figi'] == figi and b['qty'] <= qty-part_qty:
+                part_qty = part_qty+b['qty']
+                with open('sold.txt', 'a') as sf:
+                    sf.write(b['time'] + 
+                            ' ' + str(b['figi']).ljust(8, ' ') +
+                            ' ' + str(b['qty']).ljust(5, ' ') +
+                            ' ' + str(b['currency']).ljust(4, ' ') +
+                            ' ' + str(b['price']).ljust(10, ' ') +
+                            ' ' + str(price) + '\n')
+            elif b['figi'] == figi:
+                with open('sold.txt', 'a') as sf:
+                    sf.write(b['time'] + 
+                            ' ' + str(b['figi']).ljust(8, ' ') +
+                            ' ' + str(qty-part_qty).ljust(5, ' ') +
+                            ' ' + str(b['currency']).ljust(4, ' ') +
+                            ' ' + str(b['price']).ljust(10, ' ') +
+                           '  ' + str(price) + '\n')
+                    
+
+
+
+buy('YDNX', 3, 'RUR', 99.13)
+buy('GASD', 1, 'USD', 0.123)
+print(buy('BO', 200, 'EUR', 125.4))
+print(buy('BO', 100, 'EUR', 123.4))
+print(sell('BO', 250, 127.4))
+
 
 f = open('token.txt', 'r')
 token = f.read()
