@@ -31,10 +31,9 @@ def find_curve(candle_list, price, descent_perc = 2, advance_perc = 0.5):
 
 def log(message, file_name='log.txt'):
    f = open(file_name, 'a')
-   f.write(datetime.now() + message + '\n')
+   f.write(datetime.now().strftime('%Y-%m-%d %H:%M:%S') + str(message) + '\n')
    f.close()
 
-from datetime import datetime, timedelta
 def buy(figi, qty, currency, price):
     with open('bought.txt', 'a') as g:
             g.write(datetime.now().strftime('%Y-%m-%d %H:%M:%S') + 
@@ -44,12 +43,11 @@ def buy(figi, qty, currency, price):
                    ' ' + str(price) + '\n')
     return price*qty
 
-
 def get_bought():
     b = []
     with open('bought.txt', 'r') as f:
         for item in f:
-            b.append({'time':item[0:19],
+            b.append({'time':datetime(int(item[0:4]), int(item[5:7]), int(item[8:10]), int(item[11:13]), int(item[14:16]), int(item[17:19])),
                       'figi':item[20:29].rstrip(),
                       'qty':int(item[29:35]),
                       'currency':item[35:38],
@@ -66,7 +64,7 @@ def sell(figi, qty, price):
             if b['figi'] == figi and b['qty'] <= qty-part_qty:
                 part_qty = part_qty+b['qty']
                 with open('sold.txt', 'a') as sf:
-                    sf.write(b['time'] +
+                    sf.write(b['time'].strftime('%Y-%m-%d %H:%M:%S') +
                             '  ' + datetime.now().strftime('%Y-%m-%d %H:%M:%S') +
                             ' ' + str(b['figi']).ljust(8, ' ') +
                             ' ' + str(b['qty']).ljust(5, ' ') +
@@ -75,13 +73,25 @@ def sell(figi, qty, price):
                             ' ' + str(price) + '\n')
             elif b['figi'] == figi:
                 with open('sold.txt', 'a') as sf:
-                    sf.write(b['time'] +
+                    sf.write(b['time'].strftime('%Y-%m-%d %H:%M:%S') +
                             '  ' + datetime.now().strftime('%Y-%m-%d %H:%M:%S') +
                             ' ' + str(b['figi']).ljust(8, ' ') +
                             ' ' + str(qty-part_qty).ljust(5, ' ') +
                             ' ' + str(b['currency']).ljust(4, ' ') +
                             ' ' + str(b['price']).ljust(10, ' ') +
                             ' ' + str(price) + '\n')
+
+                    f.write(b['time'].strftime('%Y-%m-%d %H:%M:%S') + 
+                   ' ' + str(b['figi']).ljust(8, ' ') +
+                   ' ' + str(b['qty']-qty+part_qty).ljust(5, ' ') +
+                   ' ' + str(b['currency']).ljust(4, ' ') +
+                   ' ' + str(b['price']) + '\n')
+            else:
+                    f.write(b['time'].strftime('%Y-%m-%d %H:%M:%S') + 
+                   ' ' + str(b['figi']).ljust(8, ' ') +
+                   ' ' + str(b['qty']).ljust(5, ' ') +
+                   ' ' + str(b['currency']).ljust(4, ' ') +
+                   ' ' + str(b['price']) + '\n')
                     
 def update_balance(amount, currency):
     b = {}
@@ -146,3 +156,9 @@ for i in (getattr(getattr(mkt, 'payload'), 'instruments')):
     if q:
         buy(getattr(i, 'figi'), 1, getattr(i, 'currency'), price)
         print(getattr(i, 'ticker') + '\n' + str(q) + '\n' + str(j) + '\n\n')
+		
+		
+if 'BO2' in [c['figi'] for c in get_bought()]:
+  print('Yes')
+else:
+  print('No')
