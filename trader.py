@@ -7,14 +7,12 @@ import time
 global commission
 commission = 0.001
 
-def find_curve(candle_list, descent_perc = 2, advance_perc = 0.5):
+def find_curve(candle_list, price, descent_perc = 2, advance_perc = 0.5):
     res = {}
-    stage = 'Srart'
+    res['current_value'] = price
+    stage = 'Advance'
     for i in (sorted(candle_list, key=lambda d: getattr(d, 'time'), reverse=True)):
-        if stage == 'Srart':
-            res['current_value'] = getattr(i, 'c')
-            stage = 'Advance'
-        elif stage == 'Advance' and getattr(i, 'c') < res['current_value'] / 100 * (100 - advance_perc):
+        if stage == 'Advance' and getattr(i, 'c') < res['current_value'] / 100 * (100 - advance_perc):
             res['low_value'] = getattr(i, 'c')
             res['low_time'] = getattr(i, 'time')
             stage = 'Descent'
@@ -68,7 +66,8 @@ def sell(figi, qty, price):
             if b['figi'] == figi and b['qty'] <= qty-part_qty:
                 part_qty = part_qty+b['qty']
                 with open('sold.txt', 'a') as sf:
-                    sf.write(b['time'] + 
+                    sf.write(b['time'] +
+                            '  ' + datetime.now().strftime('%Y-%m-%d %H:%M:%S') +
                             ' ' + str(b['figi']).ljust(8, ' ') +
                             ' ' + str(b['qty']).ljust(5, ' ') +
                             ' ' + str(b['currency']).ljust(4, ' ') +
@@ -76,21 +75,41 @@ def sell(figi, qty, price):
                             ' ' + str(price) + '\n')
             elif b['figi'] == figi:
                 with open('sold.txt', 'a') as sf:
-                    sf.write(b['time'] + 
+                    sf.write(b['time'] +
+                            '  ' + datetime.now().strftime('%Y-%m-%d %H:%M:%S') +
                             ' ' + str(b['figi']).ljust(8, ' ') +
                             ' ' + str(qty-part_qty).ljust(5, ' ') +
                             ' ' + str(b['currency']).ljust(4, ' ') +
                             ' ' + str(b['price']).ljust(10, ' ') +
-                           '  ' + str(price) + '\n')
+                            ' ' + str(price) + '\n')
                     
+def update_balance(amount, currency):
+    b = {}
+    try:
+        f = open('balances.txt', 'r')
+        for line in f:
+            b[line[0:3]] = line[4:].strip()
+        f.close()
+    except FileNotFoundError:
+        b['RUR'] = 0
+        b['USD'] = 0
+        b['EUR'] = 0
+    try:
+        b[currency] = round(float(b[currency]) + amount, 2)
+    except KeyError:
+        b[currency] = amount
 
+    with open('balances.txt', 'w') as g:
+        for curr in b.keys():
+            g.write(curr + '=')
+            g.write(str(b[curr])+'\n')
+    return b[currency]
 
-
-buy('YDNX', 3, 'RUR', 99.13)
-buy('GASD', 1, 'USD', 0.123)
-print(buy('BO', 200, 'EUR', 125.4))
-print(buy('BO', 100, 'EUR', 123.4))
-print(sell('BO', 250, 127.4))
+##buy('YDNX', 3, 'RUR', 99.13)
+##buy('GASD', 1, 'USD', 0.123)
+##print(buy('BO', 200, 'EUR', 125.4))
+##print(buy('BO', 100, 'EUR', 123.4))
+##print(sell('BO', 250, 127.4))
 
 
 f = open('token.txt', 'r')
@@ -108,12 +127,22 @@ fmt = '%Y-%m-%dT%H:%M:%S.%f+03:00'
 for i in (getattr(getattr(mkt, 'payload'), 'instruments')):
     j = j + 1
     time.sleep(1)
-##    if j > 10:
-##        break
+    if j > 10:
+        break
+    response = client.market.market_orderbook_get(getattr(i, 'figi'), 2)
+    
+    if getattr(getattr(response, 'payload'), 'trade_status') != 'NormalTrading':
+        print(response)
+        continue
+    # The Cheapest offer in orderbook
+    price = float(getattr(getattr(getattr(response, 'payload'), 'asks')[0], 'price'))
+    if not price:
+        print(response + '\n\n')
+        continue
+    
     response = client.market.market_candles_get(getattr(i, 'figi'),time_from.strftime(fmt),time_to.strftime(fmt),'hour')
     candles = getattr(getattr(response, 'payload'), 'candles')
-    q = find_curve(candles)
+    q = find_curve(candles, price)
     if q:
+        buy(getattr(i, 'figi'), 1, getattr(i, 'currency'), price)
         print(getattr(i, 'ticker') + '\n' + str(q) + '\n' + str(j) + '\n\n')
-
-#bought.txt
