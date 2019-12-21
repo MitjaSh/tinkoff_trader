@@ -148,33 +148,32 @@ def find_and_buy():
     token = f.read()
     f.close()
 
-    if get_balance('USD')<1 and get_balance('EUR')<1 and get_balance('RUR')<50: #No money left
-        print('No money left\n\n')
-		time.sleep(60*)
-		return 0
-    
     client = openapi.sandbox_api_client(token)
     mkt = client.market.market_stocks_get()
     j = 0
     time_to = datetime.now()
-    time_from = time_to + timedelta(days=-7)
+    time_from = time_to + timedelta(days=-1)
     fmt = '%Y-%m-%dT%H:%M:%S.%f+03:00'
 
     bought_qty = 0
     
     for i in (getattr(getattr(mkt, 'payload'), 'instruments')):
         try:    
-            if getattr(i, 'ticker') in [c['figi'] for c in get_bought()]:
-                print(getattr(i, 'ticker') + ' already bought\n\n')
+            if getattr(i, 'ticker') in [c['ticker'] for c in get_bought()]:
+                print(getattr(i, 'ticker') + ' already bought\n')
                 continue
         except FileNotFoundError:
             None
             
         j = j + 1
         time.sleep(1)
-##        if j > 10:
+##        if j > 100:
 ##            break
-        response = client.market.market_orderbook_get(getattr(i, 'figi'), 2)
+        try:
+            response = client.market.market_orderbook_get(getattr(i, 'figi'), 2)
+        except Exception as err:
+            print(getattr(i, 'ticker') + '\n' + str(err))
+            continue
         
         if getattr(getattr(response, 'payload'), 'trade_status') != 'NormalTrading':
             print(getattr(i, 'ticker') + ' ' + getattr(getattr(response, 'payload'), 'trade_status')+ '\n')
@@ -184,29 +183,37 @@ def find_and_buy():
             price = float(getattr(getattr(getattr(response, 'payload'), 'asks')[0], 'price'))
         except IndexError:
             print('IndexError: list index out of range')
-            print(getattr(i, 'ticker') + ' ' + response + '\n')
+            print(getattr(i, 'ticker') + ' ' + str(response) + '\n')
+            continue
         if not price:
-            print(response + '\n\n')
+            print('No price')
+            print(str(response) + '\n')
             continue
 
-        if (price>100 and getattr(i, 'currency') in ['USD','EUR']) or (price>5000 and getattr(i, 'currency') == 'RUR'):
-            print(getattr(i, 'ticker') + ' ' + price + getattr(i, 'currency') + ' Too expensive\n\n')
+        if (price>100 and getattr(i, 'currency') in ['USD','EUR']) or (price>5000 and getattr(i, 'currency') == 'RUB'):
+            print(getattr(i, 'ticker') + ' ' + str(price) + getattr(i, 'currency') + ' Too expensive\n')
             continue
 			
-        if price>get_balance(getattr(i, 'currency')):
-            print(getattr(i, 'ticker') + ' ' + price + getattr(i, 'currency') + ' Not enough money\n\n')
+        if price>float(get_balance(getattr(i, 'currency'))):
+            print(getattr(i, 'ticker') + ' ' + str(price) + getattr(i, 'currency') + ' Not enough money\n')
             continue
      
-        response = client.market.market_candles_get(getattr(i, 'figi'),time_from.strftime(fmt),time_to.strftime(fmt),'hour')
+        try:
+            response = client.market.market_candles_get(getattr(i, 'figi'),time_from.strftime(fmt),time_to.strftime(fmt),'10min')
+        except Exception as err:
+            print(getattr(i, 'ticker') + '\n' + str(err))
+            continue
+            
         candles = getattr(getattr(response, 'payload'), 'candles')
-        q = find_curve(candles, price)
+        q = find_curve(candles, price, 3, 1)
         if q:
             current_qty = 1
-            buy(getattr(i, 'ticker'), current_qty, getattr(i, 'currency'), price)
+            buy(getattr(i, 'ticker'), getattr(i, 'figi'), current_qty, getattr(i, 'currency'), price)
             update_balance(-1*current_qty*price, getattr(i, 'currency'))
             bought_qty = bought_qty+current_qty
             log(getattr(i, 'ticker') + ' ' + str(q) + '\n')
-
+        with open('delete_to_stop.txt', 'r') as stp_file:
+            None
     return bought_qty
 
 def check_and_sell(profit):
@@ -214,18 +221,29 @@ def check_and_sell(profit):
     token = f.read()
     f.close()
 
-    sold_qty = 0
+    total_sold_qty = 0
     
     client = openapi.sandbox_api_client(token)
+    
     for stock in get_bought():
-        response = client.market.market_orderbook_get(getattr(i, 'figi'), 2)
-        price = float(getattr(getattr(getattr(response, 'payload'), 'asks')[0], 'price'))
-        print(stock['ticker'])
+        response = client.market.market_orderbook_get(stock['figi'], 2)
+        try:
+            price = float(getattr(getattr(getattr(response, 'payload'), 'bids')[0], 'price'))
+        except IndexError:
+            print('IndexError: list index out of range')
+            print(stock['ticker'] + ' ' + str(response) + '\n')
+            continue
 
-    return sold_qty
+        if stock['price']*(1+g_commission)*(1+g_profit) <= price*(1-g_commission):
+            sold_qty = sell(stock['ticker'], stock['qty'], price)
+            total_sold_qty = total_sold_qty + sold_qty
+            print(stock['ticker'] + ' sold ' + str(stock['price']) + ' ' + str(price))
+            update_balance(sold_qty*price, stock['currency'])
+        time.sleep(1)
+    return total_sold_qty
 
 
-print(find_and_buy())
+
 
 
 
@@ -235,13 +253,16 @@ print(find_and_buy())
 ##print(buy('BO', 'BBG000BLNQ16', 110, 'EUR', 123.4))
 ##print(sell('YDNX56789012', 2, 1.0024))
 ##print(sell('BO', 150, 1.0024))
-
+#update_balance(1500, 'USD')
+#time.sleep(60*140)
 with open('delete_to_stop.txt', 'w') as stp_file:
     stp_file.write(str(datetime.now())+'\n')
 
 while 2 > 1:
     with open('delete_to_stop.txt', 'r') as stp_file:
         None
-    with open('delete_to_stop.txt', 'a') as stp_file:
-        stp_file.write(str(datetime.now())+'\n')
-    time.sleep(10)
+    if float(get_balance('USD'))<1 and float(get_balance('EUR'))<1 and float(get_balance('RUB'))<50: #No money left
+        print('No money left\n\n')
+        time.sleep(60*5)
+    log('find_and_buy=' + str(find_and_buy()))
+    log('check_and_sell=' + str(check_and_sell(g_profit)))
