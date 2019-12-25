@@ -14,6 +14,7 @@ def check_find_curve(figi, v_days, period, price, descent_perc = 2, advance_perc
         response = client.market.market_candles_get(figi,time_from.strftime(g_fmt),time_to.strftime(g_fmt),period)
     except Exception as err:
         output(figi + ' ' + str(err))
+        log(figi + ' ' + str(err))
         return None
 
         
@@ -135,6 +136,27 @@ def sell(ticker, qty, price):
                    ' ' + str(b['price']) + '\n')
     return part_qty
 
+def get_sold():
+    b = []
+    try:
+        with open(g_trial + '/sold.txt', 'r') as f:
+            for item in f:
+                b.append({'time':datetime(int(item[0:4]), int(item[5:7]), int(item[8:10]), int(item[11:13]), int(item[14:16]), int(item[17:19])),
+                          'ticker':item[41:54].rstrip(),
+                          'figi':item[54:67].rstrip(),
+                          'qty':int(item[67:73]),
+                          'currency':item[73:76],
+                          'profit':float(item[100:].rstrip())
+                          })
+    except FileNotFoundError:
+        return b
+    return b
+
+def print_dict(v_dict, prefix = ''):
+    res = ''
+    for i in sorted(list(v_dict.keys())):
+        res = res + prefix + str(i) + ': ' + str(v_dict[i]) + '\n'
+    return res
 
 def update_balance(amount, currency):
     b = {}
@@ -171,6 +193,32 @@ def get_balance(currency):
         b['EUR'] = 0
     return b[currency]
 
+def get_statistic():
+    b = {}
+    try:
+        f = open(g_trial+'/balances.txt', 'r')
+        for line in f:
+            b['Balance ' + line[0:3]] = line[4:].strip()
+        f.close()
+    except FileNotFoundError:
+        b['Balance RUB'] = 0
+        b['Balance USD'] = 0
+        b['Balance EUR'] = 0
+    b['Bought RUB'] = 0
+    b['Bought USD'] = 0
+    b['Bought EUR'] = 0
+    for i in (get_bought()):
+        b['Bought '+i['currency']] = b['Bought '+i['currency']] + i['price'] * i['qty']
+    b['Balance&Bought RUB'] = float(b['Balance RUB']) + float(b['Bought RUB'])
+    b['Balance&Bought USD'] = float(b['Balance USD']) + float(b['Bought USD'])
+    b['Balance&Bought EUR'] = float(b['Balance EUR']) + float(b['Bought EUR'])
+    b['Profit RUB'] = 0
+    b['Profit USD'] = 0
+    b['Profit EUR'] = 0
+    for i in (get_sold()):
+        b['Profit '+i['currency']] = b['Profit '+i['currency']] + i['profit']
+    return b
+
 def update_statistic (stat_dict, event, qty=1):
     try:
         stat_dict[event] = stat_dict[event] + qty
@@ -182,7 +230,7 @@ def find_and_buy():
     mkt = client.market.market_stocks_get()
     result_statistic = {}
     bought_list = get_bought()
-
+    result_statistic['Go to checks'] = 0
     # Cycle on stocks
     for i in (getattr(getattr(mkt, 'payload'), 'instruments')):
         should_i_stop()
@@ -205,19 +253,20 @@ def find_and_buy():
                     or (g_stock_price[getattr(i, 'ticker')] > float(g_trial_params['EXPENSIVE_RUB']) and getattr(i, 'currency') == 'RUB'):
                 output(getattr(i, 'ticker') + ' Too expensive ' + getattr(i, 'currency') + ' (Past experience)')
                 update_statistic(result_statistic, 'Too expensive ' + getattr(i, 'currency') + ' (Past experience)')
-            continue
+                continue
         except KeyError:
             None
-
         
-        # After all offline checks: one pause every four stocks
-        if result_statistic['Total'] % 4 == 0: #TBD
+        # After all offline checks: one pause every four processed stocks
+        if result_statistic['Total'] % 4 == 0: #TBD Go to checks
             time.sleep(1)
                 
         try:
             response = client.market.market_orderbook_get(getattr(i, 'figi'), 2)
         except Exception as err:
             output(getattr(i, 'ticker') + ' ' + str(err))
+            log(getattr(i, 'ticker') + ' ' + str(err))
+            update_statistic(result_statistic, 'Error')
             continue
 
         if getattr(getattr(response, 'payload'), 'trade_status') != 'NormalTrading':
@@ -255,6 +304,7 @@ def find_and_buy():
             continue
 
         # Apply checks
+        update_statistic(result_statistic, 'Go to checks')
         with open(g_trial+'/check_curve.txt', 'r') as check_file:
             check_params = {line.split('=')[0] : line.split('=')[1].strip() for line in check_file}
             q = check_find_curve(getattr(i, 'figi'),
@@ -276,7 +326,12 @@ def check_and_sell(profit):
     total_sold_qty = 0
 
     for stock in get_bought():
-        response = client.market.market_orderbook_get(stock['figi'], 2)
+        try:
+            response = client.market.market_orderbook_get(stock['figi'], 2)
+        except Exception as err:
+            output(stock['ticker'] + ' ' + str(err))
+            log(stock['ticker'] + ' ' + str(err))
+            continue
         try:
             price = float(getattr(getattr(getattr(response, 'payload'), 'bids')[0], 'price'))
         except IndexError:
@@ -289,10 +344,12 @@ def check_and_sell(profit):
             sold_qty = sell(stock['ticker'], stock['qty'], price)
             total_sold_qty = total_sold_qty + sold_qty
             output(stock['ticker'] + ' sold ' + str(stock['price']) + ' ' + str(price))
-            update_balance(sold_qty*price, stock['currency'])
+            update_balance(sold_qty * price -
+                           sold_qty * stock['price'] * float(g_trial_params['COMMISSION']) -
+                           sold_qty * price * float(g_trial_params['COMMISSION'])
+                           , stock['currency'])
         time.sleep(1)
     return total_sold_qty
-
 
 
 with open('delete_to_stop.txt', 'w') as stp_file:
@@ -323,6 +380,7 @@ while 2 > 1:
     if datetime.now().hour < int(g_params['START_TIME']):
         print('No work at night')
         time.sleep(60)
+        should_i_stop()
         continue
 
     # Wait for time gap
@@ -330,7 +388,8 @@ while 2 > 1:
     if sec_between < int(g_params['TIME_GAP'])*60:
         should_i_stop()
         print('Pause for ' + str(int(g_params['TIME_GAP'])*60 - sec_between) + ' sec.')
-        time.sleep(int(g_params['TIME_GAP'])*60 - sec_between)
+        time.sleep(60)
+        continue
     last_iteration_start_time = datetime.now()
     # Process trials
     for trial in trials:
@@ -356,5 +415,6 @@ while 2 > 1:
             g_not_available = []
             g_stock_price = {}
         else:
-            log(str(find_and_buy()))
+            log('\n' + print_dict(find_and_buy(), '                       '))
         log('check_and_sell=' + str(check_and_sell(g_trial_params['PROFIT'])))
+        log('\n' + print_dict(get_statistic(), '                     '))
