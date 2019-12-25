@@ -351,6 +351,45 @@ def check_and_sell(profit):
         time.sleep(1)
     return total_sold_qty
 
+def request(ticker, figi, qty, currency, price, req_type):
+    with open(g_trial + '/request.txt', 'a') as g:
+            g.write(datetime.now().strftime('%Y-%m-%d %H:%M:%S') +
+                   ' ' + str(ticker).ljust(12, ' ') +
+                   ' ' + str(figi).ljust(12, ' ') +
+                   ' ' + str(qty).ljust(5, ' ') +
+                   ' ' + str(currency).ljust(4, ' ') +
+                   ' ' + str(price).ljust(10, ' ') +
+                   ' ' + req_type + '\n')
+    return price*qty
+
+
+def get_request():
+    b = []
+    try:
+        with open(g_trial + '/request.txt', 'r') as f:
+            for item in f:
+                b.append({'time':datetime(int(item[0:4]), int(item[5:7]), int(item[8:10]), int(item[11:13]), int(item[14:16]), int(item[17:19])),
+                          'ticker':item[20:33].rstrip(),
+                          'figi':item[33:46].rstrip(),
+                          'qty':int(item[46:52]),
+                          'currency':item[52:55],
+                          'price':float(item[57:68].rstrip()),
+                          'type':item[68:].rstrip()
+                          })
+    except FileNotFoundError:
+        return b
+    return b
+
+
+def check_requests():
+    for r in get_request():
+        if r['type'] == 'BUY':
+            buy_qty = r['qty']
+            print('BUY' + str(r['time']))
+        elif r['type'] == 'SELL':
+            sell_qty = r['qty']
+            print('SELL' + str(r['time']))
+
 
 with open('delete_to_stop.txt', 'w') as stp_file:
     stp_file.write(str(datetime.now())+'\n')
