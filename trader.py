@@ -351,16 +351,17 @@ def check_and_sell(profit):
         time.sleep(1)
     return total_sold_qty
 
-def request(ticker, figi, qty, currency, price, req_type):
+def request(ticker, figi, qty, currency, buy_price, req_type, sell_price=''):
     with open(g_trial + '/request.txt', 'a') as g:
             g.write(datetime.now().strftime('%Y-%m-%d %H:%M:%S') +
                    ' ' + str(ticker).ljust(12, ' ') +
                    ' ' + str(figi).ljust(12, ' ') +
                    ' ' + str(qty).ljust(5, ' ') +
                    ' ' + str(currency).ljust(4, ' ') +
-                   ' ' + str(price).ljust(10, ' ') +
-                   ' ' + req_type + '\n')
-    return price*qty
+                   ' ' + str(buy_price).ljust(10, ' ') +
+                   ' ' + str(req_type).ljust(4, ' ')  +
+                   ' ' + str(sell_price).ljust(10, ' ')  +  '\n')
+    return buy_price*qty
 
 
 def get_request():
@@ -368,27 +369,76 @@ def get_request():
     try:
         with open(g_trial + '/request.txt', 'r') as f:
             for item in f:
-                b.append({'time':datetime(int(item[0:4]), int(item[5:7]), int(item[8:10]), int(item[11:13]), int(item[14:16]), int(item[17:19])),
+                r = {'time':datetime(int(item[0:4]), int(item[5:7]), int(item[8:10]), int(item[11:13]), int(item[14:16]), int(item[17:19])),
                           'ticker':item[20:33].rstrip(),
                           'figi':item[33:46].rstrip(),
                           'qty':int(item[46:52]),
                           'currency':item[52:55],
-                          'price':float(item[57:68].rstrip()),
-                          'type':item[68:].rstrip()
-                          })
+                          'buy_price':float(item[57:68].rstrip()),
+                          'type':item[68:73].rstrip()
+                          }
+                if item[73:].rstrip():
+                    r['sell_price'] = float(item[73:].rstrip())
+                b.append(r)
     except FileNotFoundError:
         return b
     return b
 
 
 def check_requests():
-    for r in get_request():
-        if r['type'] == 'BUY':
-            buy_qty = r['qty']
-            print('BUY' + str(r['time']))
-        elif r['type'] == 'SELL':
-            sell_qty = r['qty']
-            print('SELL' + str(r['time']))
+    res = {}
+    rr = get_request()
+    with open(g_trial + '/request.txt', 'w') as f:
+        for r in rr:
+              if r['type'] == 'BUY':
+                  buy_qty = r['qty'] # TBD
+                  if buy_qty > 0:
+                      with open(g_trial + '/bought.txt', 'a') as sf:
+                          sf.write(r['time'].strftime('%Y-%m-%d %H:%M:%S') +
+                                  ' ' + str(r['ticker']).ljust(12, ' ') +
+                                  ' ' + str(r['figi']).ljust(12, ' ') +
+                                  ' ' + str(buy_qty).ljust(5, ' ') +
+                                  ' ' + str(r['currency']).ljust(4, ' ') +
+                                  ' ' + str(r['buy_price']).ljust(10, ' ') + '\n')
+                      update_statistic(res, 'Buy requests completed')
+                      update_statistic(res, 'Stocks bought', buy_qty)
+                  if r['qty'] > buy_qty:
+                          f.write(r['time'].strftime('%Y-%m-%d %H:%M:%S') +
+                         ' ' + str(r['ticker']).ljust(12, ' ') +
+                         ' ' + str(r['figi']).ljust(12, ' ') +
+                         ' ' + str(r['qty']-buy_qty).ljust(5, ' ') +
+                         ' ' + str(r['currency']).ljust(4, ' ') +
+                         ' ' + str(r['buy_price']).ljust(10, ' ') +
+                         ' ' + str(r['type']) + '\n')
+              elif r['type'] == 'SELL':
+                  sell_qty = r['qty'] # TBD
+                  if sell_qty > 0:
+#                     with open(g_trial + '/sold.txt', 'a') as sf:
+#                         sf.write(r['time'].strftime('%Y-%m-%d %H:%M:%S') +
+#                                 '  ' + datetime.now().strftime('%Y-%m-%d %H:%M:%S') +
+#                                 ' ' + str(r['ticker']).ljust(12, ' ') +
+#                                 ' ' + str(r['figi']).ljust(12, ' ') +
+#                                 ' ' + str(sell_qty).ljust(5, ' ') +
+#                                 ' ' + str(r['currency']).ljust(4, ' ') +
+#                                 ' ' + str(r['buy_price']).ljust(10, ' ') +
+#                                 ' ' + str(r['sell_price']).ljust(10, ' ') +
+#                                 ' ' + str(round((r['sell_price']*sell_qty*(1-float(g_trial_params['COMMISSION']))) - (r['buy_price']*sell_qty*(1+float(g_trial_params['COMMISSION']))),2)) # Profit
+#                                  + '\n')
+                      sold_qty = sell(r['ticker'], sell_qty, r['sell_price'])
+                      if sold_qty != sell_qty:
+                          log('Error! Faild to sell necessary amount. ' + r['ticker'] + ', sold=' + str(sold_qty) + ', necessary=' + str(sell_qty))
+                      update_statistic(res, 'Sell requests completed')
+                      update_statistic(res, 'Stocks sold', sold_qty)
+                  if r['qty'] > sell_qty:
+                          f.write(r['time'].strftime('%Y-%m-%d %H:%M:%S') +
+                         ' ' + str(r['ticker']).ljust(12, ' ') +
+                         ' ' + str(r['figi']).ljust(12, ' ') +
+                         ' ' + str(r['qty']-sell_qty).ljust(5, ' ') +
+                         ' ' + str(r['currency']).ljust(4, ' ') +
+                         ' ' + str(r['buy_price']).ljust(10, ' ') +
+                         ' ' + str(r['type']) +
+                         ' ' + str(r['sell_price']).ljust(10, ' ') + '\n')
+    return res
 
 
 with open('delete_to_stop.txt', 'w') as stp_file:
