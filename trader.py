@@ -388,13 +388,26 @@ def get_request():
         return b
     return b
 
-
 def check_requests():
     res = {}
     rr = get_request()
     with open(g_trial + '/request.txt', 'w') as f:
         for r in rr:
-              if r['type'] == 'BUY':
+              if (datetime.now()-r['time']).seconds > 60*60*24: # Expires after 24 hours
+                  with open(g_trial + '/rejected_requests.txt', 'a') as rf:
+                      try:
+                          sell_price_str = ' ' + str(r['sell_price']).ljust(10, ' ')
+                      except KeyError:
+                          sell_price_str = ''
+                      rf.write(r['time'].strftime('%Y-%m-%d %H:%M:%S') +
+                         ' ' + str(r['ticker']).ljust(12, ' ') +
+                         ' ' + str(r['figi']).ljust(12, ' ') +
+                         ' ' + str(r['qty']).ljust(5, ' ') +
+                         ' ' + str(r['currency']).ljust(4, ' ') +
+                         ' ' + str(r['buy_price']).ljust(10, ' ') +
+                         ' ' + str(r['type'].ljust(4, ' ')) + sell_price_str + '\n')
+                      update_statistic(res, 'Rejected requests')
+              elif r['type'] == 'BUY':
                   buy_qty = r['qty'] # TBD
                   if buy_qty > 0:
                       with open(g_trial + '/bought.txt', 'a') as sf:
@@ -444,8 +457,8 @@ def check_requests():
                          ' ' + str(r['qty']-sell_qty).ljust(5, ' ') +
                          ' ' + str(r['currency']).ljust(4, ' ') +
                          ' ' + str(r['buy_price']).ljust(10, ' ') +
-                         ' ' + str(r['type']) +
-                         ' ' + str(r['sell_price']).ljust(10, ' ') + '\n')
+                         ' ' + str(r['type']).ljust(4, ' ') +
+                         ' ' + str(r['sell_price']) + '\n')
     return res
 
 
