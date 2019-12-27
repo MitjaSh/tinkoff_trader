@@ -241,12 +241,16 @@ def find_and_buy():
             output(getattr(i, 'ticker') + ' already bought')
             update_statistic(result_statistic, 'Already bought')
             continue
+        if getattr(i, 'ticker') in [c['ticker'] for c in get_request()]:
+            output(getattr(i, 'ticker') + ' already requested')
+            update_statistic(result_statistic, 'Already requested')
+            continue
         
         #Past experienced checks
-        if getattr(i, 'ticker') in g_not_available:
-            output(getattr(i, 'ticker') + ' NotAvailableForTrading (Past experience)')
-            update_statistic(result_statistic, 'NotAvailableForTrading (Past experience)')
-            continue
+##        if getattr(i, 'ticker') in g_not_available:
+##            output(getattr(i, 'ticker') + ' NotAvailableForTrading (Past experience)')
+##            update_statistic(result_statistic, 'NotAvailableForTrading (Past experience)')
+##            continue
 
         try:
             if (g_stock_price[getattr(i, 'ticker')] > float(g_trial_params['EXPENSIVE_USD']) and getattr(i, 'currency') in ['USD','EUR']) \
@@ -297,7 +301,7 @@ def find_and_buy():
             output(getattr(i, 'ticker') + ' ' + str(price) + getattr(i, 'currency') + ' Too expensive')
             update_statistic(result_statistic, 'Too expensive ' + getattr(i, 'currency'))
             continue
-        
+
         if price>float(get_balance(getattr(i, 'currency'))):
             output(getattr(i, 'ticker') + ' ' + str(price) + getattr(i, 'currency') + ' Not enough money')
             update_statistic(result_statistic, 'Not enough money')
@@ -315,15 +319,17 @@ def find_and_buy():
                                  int(check_params['ADVANCE_PERC']))
         if q:
             current_qty = 1
-            buy(getattr(i, 'ticker'), getattr(i, 'figi'), current_qty, getattr(i, 'currency'), price)
-            update_balance(-1*current_qty*price, getattr(i, 'currency'))
-            log(getattr(i, 'ticker') + ' ' + str(q) + '\n', g_trial+'/log.txt')
-            update_statistic(result_statistic, 'Bought events')
-            update_statistic(result_statistic, 'Bought stocks', current_qty)
+            requested_qty = request(getattr(i, 'ticker'), getattr(i, 'figi'), current_qty, getattr(i, 'currency'), price, 'BUY')
+            if requested_qty > 0:
+                log('Request to buy: ' + getattr(i, 'ticker') + ' ' + str(q) + '\n', g_trial+'/log.txt')
+                update_statistic(result_statistic, 'Buy requests events')
+                update_statistic(result_statistic, 'Buy requests stocks', requested_qty)
+                # Update balance before request execution
+                update_balance(-1*requested_qty*price, getattr(i, 'currency'))
     return result_statistic
 
 def check_and_sell(profit):
-    total_sold_qty = 0
+    result_statistic = {}
 
     for stock in get_bought():
         try:
@@ -341,15 +347,13 @@ def check_and_sell(profit):
 
         if stock['price']*(1+float(g_trial_params['COMMISSION']))*(1+float(g_trial_params['PROFIT'])) <= \
            price*(1-float(g_trial_params['COMMISSION'])):
-            sold_qty = sell(stock['ticker'], stock['qty'], price)
-            total_sold_qty = total_sold_qty + sold_qty
-            output(stock['ticker'] + ' sold ' + str(stock['price']) + ' ' + str(price))
-            update_balance(sold_qty * price -
-                           sold_qty * stock['price'] * float(g_trial_params['COMMISSION']) -
-                           sold_qty * price * float(g_trial_params['COMMISSION'])
-                           , stock['currency'])
+            requested_qty = request(stock['ticker'], stock['figi'], stock['qty'], stock['currency'], stock['price'], 'SELL', price)
+            if requested_qty > 0:
+                log('Request to sell: ' + stock['ticker'] + ' ' + str(stock['price']) + ' ' + str(price), g_trial+'/log.txt')
+                update_statistic(result_statistic, 'Sell requests events')
+                update_statistic(result_statistic, 'Sell requests stocks', requested_qty)
         time.sleep(1)
-    return total_sold_qty
+    return result_statistic
 
 def request(ticker, figi, qty, currency, buy_price, req_type, sell_price=''):
     with open(g_trial + '/request.txt', 'a') as g:
@@ -361,7 +365,7 @@ def request(ticker, figi, qty, currency, buy_price, req_type, sell_price=''):
                    ' ' + str(buy_price).ljust(10, ' ') +
                    ' ' + str(req_type).ljust(4, ' ')  +
                    ' ' + str(sell_price).ljust(10, ' ')  +  '\n')
-    return buy_price*qty
+    return qty
 
 
 def get_request():
@@ -429,6 +433,10 @@ def check_requests():
                           log('Error! Faild to sell necessary amount. ' + r['ticker'] + ', sold=' + str(sold_qty) + ', necessary=' + str(sell_qty))
                       update_statistic(res, 'Sell requests completed')
                       update_statistic(res, 'Stocks sold', sold_qty)
+                      update_balance(sold_qty * r['sell_price'] -
+                                     sold_qty * r['buy_price'] * float(g_trial_params['COMMISSION']) -
+                                     sold_qty * r['sell_price'] * float(g_trial_params['COMMISSION'])
+                                     , r['currency'])
                   if r['qty'] > sell_qty:
                           f.write(r['time'].strftime('%Y-%m-%d %H:%M:%S') +
                          ' ' + str(r['ticker']).ljust(12, ' ') +
@@ -459,8 +467,6 @@ log('Starting')
 f = open('token.txt', 'r')
 token = f.read()
 f.close()
-#Sandbox or PROD
-client = openapi.sandbox_api_client(token)
 g_fmt = '%Y-%m-%dT%H:%M:%S.%f+03:00'
 g_not_available = []
 g_stock_price = {}
@@ -480,6 +486,9 @@ while 2 > 1:
         time.sleep(60)
         continue
     last_iteration_start_time = datetime.now()
+
+    #Sandbox or PROD
+    client = openapi.sandbox_api_client(token)
     # Process trials
     for trial in trials:
         g_trial = trial
@@ -504,6 +513,8 @@ while 2 > 1:
             g_not_available = []
             g_stock_price = {}
         else:
-            log('\n' + print_dict(find_and_buy(), '                       '))
-        log('check_and_sell=' + str(check_and_sell(g_trial_params['PROFIT'])))
-        log('\n' + print_dict(get_statistic(), '                     '))
+            log('\n' + 'find_and_buy=\n' + print_dict(find_and_buy(), '             '))
+        log('\n' + 'check_and_sell=\n' + print_dict(check_and_sell(g_trial_params['PROFIT']), '               '))
+        log('\n' + 'check_requests=\n' + print_dict(check_requests(), '               '))
+        log('\n' + 'Statistic:\n' + print_dict(get_statistic(), '          '))
+
