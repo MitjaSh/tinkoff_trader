@@ -4,7 +4,7 @@ from pytz import timezone
 import time
 import os
 
-global g_trial, g_params, g_trial_params, client, g_fmt, g_not_available, g_stock_price
+
 
 def check_find_curve(figi, v_days, period, price, descent_perc = 2, advance_perc = 0.5):
     time_to = datetime.now()
@@ -61,15 +61,16 @@ def log(message, file_name='log.txt'):
 def output(message):
     print(g_trial + ' ' + str(message))
 
-def buy(ticker, figi, qty, currency, price):
+def buy(ticker, figi, lot_qty, lot, currency, price):
     with open(g_trial + '/bought.txt', 'a') as g:
             g.write(datetime.now().strftime('%Y-%m-%d %H:%M:%S') +
                    ' ' + str(ticker).ljust(12, ' ') +
                    ' ' + str(figi).ljust(12, ' ') +
-                   ' ' + str(qty).ljust(5, ' ') +
+                   ' ' + str(lot_qty).ljust(5, ' ') +
+                   ' ' + str(lot).ljust(6, ' ') +
                    ' ' + str(currency).ljust(4, ' ') +
                    ' ' + str(price) + '\n')
-    return price*qty
+    return price*lot_qty*lot
 
 def get_bought():
     b = []
@@ -79,59 +80,64 @@ def get_bought():
                 b.append({'time':datetime(int(item[0:4]), int(item[5:7]), int(item[8:10]), int(item[11:13]), int(item[14:16]), int(item[17:19])),
                           'ticker':item[20:33].rstrip(),
                           'figi':item[33:46].rstrip(),
-                          'qty':int(item[46:52]),
-                          'currency':item[52:55],
-                          'price':float(item[57:].rstrip())
+                          'lot_qty':int(float(item[46:52])),
+                          'lot':int(item[52:59]),
+                          'currency':item[59:62],
+                          'price':float(item[64:].rstrip())
                           })
     except FileNotFoundError:
         return b
     return b
 
 
-def sell(ticker, qty, price):
+def sell(ticker, lot_qty, price):
     part_qty = 0
     bb = get_bought()
     with open(g_trial + '/bought.txt', 'w') as f:
         for b in (bb):
-            if b['ticker'] == ticker and b['qty'] <= qty-part_qty:
-                part_qty = part_qty+b['qty']
+            if b['ticker'] == ticker and b['lot_qty'] <= lot_qty-part_qty:
+                part_qty = part_qty+b['lot_qty']
                 with open(g_trial + '/sold.txt', 'a') as sf:
                     sf.write(b['time'].strftime('%Y-%m-%d %H:%M:%S') +
                             '  ' + datetime.now().strftime('%Y-%m-%d %H:%M:%S') +
                             ' ' + str(b['ticker']).ljust(12, ' ') +
                             ' ' + str(b['figi']).ljust(12, ' ') +
-                            ' ' + str(b['qty']).ljust(5, ' ') +
+                            ' ' + str(b['lot_qty']).ljust(5, ' ') +
+                            ' ' + str(b['lot']).ljust(6, ' ') +
                             ' ' + str(b['currency']).ljust(4, ' ') +
                             ' ' + str(b['price']).ljust(10, ' ') +
                             ' ' + str(price).ljust(10, ' ') +
-                            ' ' + str(round((price*b['qty']*(1-float(g_trial_params['COMMISSION']))) - (b['price']*b['qty']*(1+float(g_trial_params['COMMISSION']))),2)) # Profit
+                            ' ' + str(round((price*b['lot_qty']*b['lot']*(1-float(g_trial_params['COMMISSION']))) - (b['price']*b['lot_qty']*b['lot']*(1+float(g_trial_params['COMMISSION']))),2)) # Profit
                                 + '\n')
             elif b['ticker'] == ticker:
                 with open(g_trial + '/sold.txt', 'a') as sf:
-                    if qty-part_qty != 0:
+                    if lot_qty-part_qty != 0:
                         sf.write(b['time'].strftime('%Y-%m-%d %H:%M:%S') +
                                 '  ' + datetime.now().strftime('%Y-%m-%d %H:%M:%S') +
                                 ' ' + str(b['ticker']).ljust(12, ' ') +
                                 ' ' + str(b['figi']).ljust(12, ' ') +
-                                ' ' + str(qty-part_qty).ljust(5, ' ') +
+                                ' ' + str(lot_qty-part_qty).ljust(5, ' ') +
+                                ' ' + str(b['lot']).ljust(6, ' ') +
                                 ' ' + str(b['currency']).ljust(4, ' ') +
                                 ' ' + str(b['price']).ljust(10, ' ') +
                                 ' ' + str(price).ljust(10, ' ') +
-                                ' ' + str(round((price*(qty-part_qty)*(1-float(g_trial_params['COMMISSION']))) - (b['price']*(qty-part_qty)*(1+float(g_trial_params['COMMISSION']))),2))  # Profit
+                                ' ' + str(round((price*(lot_qty-part_qty)*b['lot']*(1-float(g_trial_params['COMMISSION']))) - (b['price']*(lot_qty-part_qty)*b['lot']*(1+float(g_trial_params['COMMISSION']))),2))  # Profit
                                     + '\n')
 
                     f.write(b['time'].strftime('%Y-%m-%d %H:%M:%S') +
                    ' ' + str(b['ticker']).ljust(12, ' ') +
                    ' ' + str(b['figi']).ljust(12, ' ') +
-                   ' ' + str(b['qty']-qty+part_qty).ljust(5, ' ') +
+                   ' ' + str(b['lot_qty']-lot_qty+part_qty).ljust(5, ' ') +
+                   ' ' + str(b['lot']).ljust(6, ' ') +
                    ' ' + str(b['currency']).ljust(4, ' ') +
                    ' ' + str(b['price']) + '\n')
-                    part_qty = qty
+                    part_qty = lot_qty
             else:
                     f.write(b['time'].strftime('%Y-%m-%d %H:%M:%S') +
                    ' ' + str(b['ticker']).ljust(12, ' ') +
                    ' ' + str(b['figi']).ljust(12, ' ') +
-                   ' ' + str(b['qty']).ljust(5, ' ') +
+                   ' ' + str(b['lot_qty']).ljust(5, ' ') +
+                   ' ' + str(b['lot']).ljust(6, ' ') +
                    ' ' + str(b['currency']).ljust(4, ' ') +
                    ' ' + str(b['price']) + '\n')
     return part_qty
@@ -144,9 +150,10 @@ def get_sold():
                 b.append({'time':datetime(int(item[0:4]), int(item[5:7]), int(item[8:10]), int(item[11:13]), int(item[14:16]), int(item[17:19])),
                           'ticker':item[41:54].rstrip(),
                           'figi':item[54:67].rstrip(),
-                          'qty':int(item[67:73]),
-                          'currency':item[73:76],
-                          'profit':float(item[100:].rstrip())
+                          'lot_qty':int(item[67:73]),
+                          'lot':int(item[73:80]),
+                          'currency':item[80:83],
+                          'profit':float(item[103:].rstrip())
                           })
     except FileNotFoundError:
         return b
@@ -208,7 +215,7 @@ def get_statistic():
     b['Bought USD'] = 0
     b['Bought EUR'] = 0
     for i in (get_bought()):
-        b['Bought '+i['currency']] = b['Bought '+i['currency']] + i['price'] * i['qty']
+        b['Bought '+i['currency']] = b['Bought '+i['currency']] + i['price'] * i['lot_qty']* i['lot']
     b['Balance&Bought RUB'] = float(b['Balance RUB']) + float(b['Bought RUB'])
     b['Balance&Bought USD'] = float(b['Balance USD']) + float(b['Bought USD'])
     b['Balance&Bought EUR'] = float(b['Balance EUR']) + float(b['Bought EUR'])
@@ -227,8 +234,14 @@ def update_statistic (stat_dict, event, qty=1):
     return stat_dict
 
 def find_and_buy():
-    mkt = client.market.market_stocks_get()
     result_statistic = {}
+    try:
+        mkt = client.market.market_stocks_get()
+    except Exception as err:
+        output('Can''t ger stocks list: ' + str(err))
+        log('Can''t ger stocks list: ' + str(err))
+        return result_statistic
+    
     bought_list = get_bought()
     result_statistic['Go to checks'] = 0
     # Cycle on stocks
@@ -244,6 +257,19 @@ def find_and_buy():
         if getattr(i, 'ticker') in [c['ticker'] for c in get_request()]:
             output(getattr(i, 'ticker') + ' already requested')
             update_statistic(result_statistic, 'Already requested')
+            continue
+        # Check for my portfolio
+        try:
+            response = client.portfolio.portfolio_get()
+        except Exception as err:
+            output(getattr(i, 'ticker') + ' ' + str(err))
+            log(getattr(i, 'ticker') + ' ' + str(err))
+            update_statistic(result_statistic, 'Error')
+            continue
+        
+        if getattr(i, 'figi') in [getattr(c, 'figi') for c in getattr(getattr(response, 'payload'), 'positions')]:
+            output(getattr(i, 'ticker') + ' in my investment portfolio')
+            update_statistic(result_statistic, 'In my investment portfolio')
             continue
         
         #Past experienced checks
@@ -279,11 +305,13 @@ def find_and_buy():
             if getattr(getattr(response, 'payload'), 'trade_status') == 'NotAvailableForTrading':
                 g_not_available.append(getattr(i, 'ticker'))
             continue
-        
+
+        lot_qty = 1
+        lot = int(getattr(i, 'lot'))
         # The Cheapest offer in orderbook
         try:
             price = float(getattr(getattr(getattr(response, 'payload'), 'asks')[0], 'price'))
-            g_stock_price[getattr(i, 'ticker')] = price
+            g_stock_price[getattr(i, 'ticker')] = price*lot
         except IndexError:
             output('IndexError: list index out of range')
             print(getattr(i, 'ticker') + ' ' + str(response))
@@ -296,14 +324,14 @@ def find_and_buy():
             update_statistic(result_statistic, 'No price')
             continue
 
-        if (price > float(g_trial_params['EXPENSIVE_USD']) and getattr(i, 'currency') in ['USD','EUR']) \
-                    or (price > float(g_trial_params['EXPENSIVE_RUB']) and getattr(i, 'currency') == 'RUB'):
-            output(getattr(i, 'ticker') + ' ' + str(price) + getattr(i, 'currency') + ' Too expensive')
+        if (price * lot > float(g_trial_params['EXPENSIVE_USD']) and getattr(i, 'currency') in ['USD','EUR']) \
+                    or (price * lot > float(g_trial_params['EXPENSIVE_RUB']) and getattr(i, 'currency') == 'RUB'):
+            output(getattr(i, 'ticker') + ' ' + str(price) + '*' + str(lot) + ' ' + getattr(i, 'currency') + ' Too expensive')
             update_statistic(result_statistic, 'Too expensive ' + getattr(i, 'currency'))
             continue
 
-        if price>float(get_balance(getattr(i, 'currency'))):
-            output(getattr(i, 'ticker') + ' ' + str(price) + getattr(i, 'currency') + ' Not enough money')
+        if price * lot > float(get_balance(getattr(i, 'currency'))):
+            output(getattr(i, 'ticker') + ' ' + str(price) + '*' + str(lot) + ' ' + getattr(i, 'currency') + ' Not enough money')
             update_statistic(result_statistic, 'Not enough money')
             continue
 
@@ -318,14 +346,13 @@ def find_and_buy():
                                  int(check_params['DESCENT_PERC']),
                                  int(check_params['ADVANCE_PERC']))
         if q:
-            current_qty = 1
-            requested_qty = request(getattr(i, 'ticker'), getattr(i, 'figi'), current_qty, getattr(i, 'currency'), price, 'BUY')
+            requested_qty = request(getattr(i, 'ticker'), getattr(i, 'figi'), lot_qty, lot, getattr(i, 'currency'), price, 'Buy')
             if requested_qty > 0:
                 log('Request to buy: ' + getattr(i, 'ticker') + ' ' + str(q) + '\n', g_trial+'/log.txt')
                 update_statistic(result_statistic, 'Buy requests events')
                 update_statistic(result_statistic, 'Buy requests stocks', requested_qty)
                 # Update balance before request execution
-                update_balance(-1*requested_qty*price, getattr(i, 'currency'))
+                update_balance(-1*lot_qty*lot*price, getattr(i, 'currency'))
     return result_statistic
 
 def check_and_sell(profit):
@@ -347,7 +374,7 @@ def check_and_sell(profit):
 
         if stock['price']*(1+float(g_trial_params['COMMISSION']))*(1+float(g_trial_params['PROFIT'])) <= \
            price*(1-float(g_trial_params['COMMISSION'])):
-            requested_qty = request(stock['ticker'], stock['figi'], stock['qty'], stock['currency'], stock['price'], 'SELL', price)
+            requested_qty = request(stock['ticker'], stock['figi'], stock['lot_qty'], stock['lot'], stock['currency'], stock['price'], 'Sell', price)
             if requested_qty > 0:
                 log('Request to sell: ' + stock['ticker'] + ' ' + str(stock['price']) + ' ' + str(price), g_trial+'/log.txt')
                 update_statistic(result_statistic, 'Sell requests events')
@@ -355,18 +382,40 @@ def check_and_sell(profit):
         time.sleep(1)
     return result_statistic
 
-def request(ticker, figi, qty, currency, buy_price, req_type, sell_price=''):
-    with open(g_trial + '/request.txt', 'a') as g:
-            g.write(datetime.now().strftime('%Y-%m-%d %H:%M:%S') +
-                   ' ' + str(ticker).ljust(12, ' ') +
-                   ' ' + str(figi).ljust(12, ' ') +
-                   ' ' + str(qty).ljust(5, ' ') +
-                   ' ' + str(currency).ljust(4, ' ') +
-                   ' ' + str(buy_price).ljust(10, ' ') +
-                   ' ' + str(req_type).ljust(4, ' ')  +
-                   ' ' + str(sell_price).ljust(10, ' ')  +  '\n')
-    return qty
-
+def request(ticker, p_figi, lot_qty, lot, currency, buy_price, req_type, sell_price=''):
+    order_id = ''
+    order_status = ''
+    if g_trial_params['ENVIRONMENT'] == 'PROD':
+        v_price = buy_price if req_type == 'Buy' else sell_price
+        try:
+            order_response = client.orders.orders_limit_order_post(figi=p_figi,
+                                                                   limit_order_request={"lots": lot_qty,
+                                                                                        "operation": req_type,
+                                                                                        "price": v_price})
+            order_id = getattr(getattr(order_response, 'payload'), 'order_id')
+            order_status = getattr(order_response, 'status')
+            log(order_response, g_trial+'/log.txt')
+        except Exception as err: 
+            output('Reqest error. ' + ticker + ' ' + req_type + ' ' + str(lot_qty) + ' lots: ' + str(err))
+            log('Reqest error. ' + ticker + ' ' + req_type + ' ' +str(lot_qty) + ' lots: ' + str(err))
+            return 0
+    elif g_trial_params['ENVIRONMENT'] == 'TEST':
+        order_status = 'Ok'
+        
+    if order_status == 'Ok':
+        with open(g_trial + '/request.txt', 'a') as g:
+                g.write(datetime.now().strftime('%Y-%m-%d %H:%M:%S') +
+                       ' ' + str(ticker).ljust(12, ' ') +
+                       ' ' + str(p_figi).ljust(12, ' ') +
+                       ' ' + str(lot_qty).ljust(5, ' ') +
+                       ' ' + str(lot).ljust(6, ' ') +
+                       ' ' + str(currency).ljust(4, ' ') +
+                       ' ' + str(buy_price).ljust(10, ' ') +
+                       ' ' + str(req_type).ljust(4, ' ')  +
+                       ' ' + str(sell_price).ljust(10, ' ')  +  '\n')
+        return lot_qty
+    else:
+        return 0
 
 def get_request():
     b = []
@@ -376,21 +425,38 @@ def get_request():
                 r = {'time':datetime(int(item[0:4]), int(item[5:7]), int(item[8:10]), int(item[11:13]), int(item[14:16]), int(item[17:19])),
                           'ticker':item[20:33].rstrip(),
                           'figi':item[33:46].rstrip(),
-                          'qty':int(item[46:52]),
-                          'currency':item[52:55],
-                          'buy_price':float(item[57:68].rstrip()),
-                          'type':item[68:73].rstrip()
+                          'lot_qty':int(item[46:52]),
+                          'lot':int(item[52:59]),
+                          'currency':item[59:62],
+                          'buy_price':float(item[64:75].rstrip()),
+                          'type':item[75:80].rstrip()
                           }
-                if item[73:].rstrip():
-                    r['sell_price'] = float(item[73:].rstrip())
+                if item[78:].rstrip():
+                    r['sell_price'] = float(item[80:].rstrip())
                 b.append(r)
     except FileNotFoundError:
         return b
     return b
 
+
 def check_requests():
     res = {}
     rr = get_request()
+    bought = {} # Already bought
+    for  i in get_bought():
+        try:
+            bought[i['figi']] = bought[i['figi']] + i['lot_qty']
+        except KeyError:
+            bought[i['figi']] = i['lot_qty']
+    if g_trial_params['ENVIRONMENT'] == 'PROD':
+        try:
+            response = client.portfolio.portfolio_get()
+            my_portfolio = {getattr(c, 'figi'):int(getattr(c, 'balance')) for c in getattr(getattr(response, 'payload'), 'positions')}
+        except Exception as err:
+            output('Can''t get portfolio: ' + str(err))
+            log('Can''t get portfolio: ' + str(err))
+            return res
+        
     with open(g_trial + '/request.txt', 'w') as f:
         for r in rr:
               if (datetime.now()-r['time']).seconds > 60*60*24: # Expires after 24 hours
@@ -402,132 +468,180 @@ def check_requests():
                       rf.write(r['time'].strftime('%Y-%m-%d %H:%M:%S') +
                          ' ' + str(r['ticker']).ljust(12, ' ') +
                          ' ' + str(r['figi']).ljust(12, ' ') +
-                         ' ' + str(r['qty']).ljust(5, ' ') +
+                         ' ' + str(r['lot_qty']).ljust(5, ' ') +
+                         ' ' + str(r['lot']).ljust(6, ' ') +
                          ' ' + str(r['currency']).ljust(4, ' ') +
                          ' ' + str(r['buy_price']).ljust(10, ' ') +
                          ' ' + str(r['type'].ljust(4, ' ')) + sell_price_str + '\n')
                       update_statistic(res, 'Rejected requests')
-              elif r['type'] == 'BUY':
-                  buy_qty = r['qty'] # TBD
+              elif r['type'] == 'Buy':
+                  if g_trial_params['ENVIRONMENT'] == 'PROD':
+                      try:
+                         already_bougth = bought[r['figi']]
+                      except KeyError:
+                         already_bougth = 0
+                      try:
+                         buy_qty = my_portfolio[r['figi']] / r['lot'] - already_bougth
+                      except KeyError:
+                         buy_qty = 0
+
+                      if buy_qty > r['lot_qty']:
+                          update_statistic(res, 'Requests with error')
+                          log(r['ticker'] + ' bougth more than requested: ' + str(buy_qty) + ' > ' + str(r['lot_qty']))
+                  elif g_trial_params['ENVIRONMENT'] == 'TEST':
+                      buy_qty = r['lot_qty']
+                     
                   if buy_qty > 0:
                       with open(g_trial + '/bought.txt', 'a') as sf:
                           sf.write(r['time'].strftime('%Y-%m-%d %H:%M:%S') +
                                   ' ' + str(r['ticker']).ljust(12, ' ') +
                                   ' ' + str(r['figi']).ljust(12, ' ') +
                                   ' ' + str(buy_qty).ljust(5, ' ') +
+                                  ' ' + str(r['lot']).ljust(6, ' ') +
                                   ' ' + str(r['currency']).ljust(4, ' ') +
                                   ' ' + str(r['buy_price']).ljust(10, ' ') + '\n')
                       update_statistic(res, 'Buy requests completed')
                       update_statistic(res, 'Stocks bought', buy_qty)
-                  if r['qty'] > buy_qty:
+                      log(r['ticker'] + ' bougth: ' + str(buy_qty), g_trial+'/log.txt')
+                  if r['lot_qty'] > buy_qty:
                           f.write(r['time'].strftime('%Y-%m-%d %H:%M:%S') +
                          ' ' + str(r['ticker']).ljust(12, ' ') +
                          ' ' + str(r['figi']).ljust(12, ' ') +
-                         ' ' + str(r['qty']-buy_qty).ljust(5, ' ') +
+                         ' ' + str(r['lot_qty']-buy_qty).ljust(5, ' ') +
+                         ' ' + str(r['lot']).ljust(6, ' ') +
                          ' ' + str(r['currency']).ljust(4, ' ') +
                          ' ' + str(r['buy_price']).ljust(10, ' ') +
                          ' ' + str(r['type']) + '\n')
-              elif r['type'] == 'SELL':
-                  sell_qty = r['qty'] # TBD
+              elif r['type'] == 'Sell':
+                  if g_trial_params['ENVIRONMENT'] == 'PROD':
+                      try:
+                         sell_qty = r['lot_qty'] - my_portfolio[r['figi']] / r['lot']
+                      except KeyError:
+                         sell_qty = r['lot_qty']
+                  elif g_trial_params['ENVIRONMENT'] == 'TEST':
+                      sell_qty = r['lot_qty']
+                  
+                  
                   if sell_qty > 0:
-#                     with open(g_trial + '/sold.txt', 'a') as sf:
-#                         sf.write(r['time'].strftime('%Y-%m-%d %H:%M:%S') +
-#                                 '  ' + datetime.now().strftime('%Y-%m-%d %H:%M:%S') +
-#                                 ' ' + str(r['ticker']).ljust(12, ' ') +
-#                                 ' ' + str(r['figi']).ljust(12, ' ') +
-#                                 ' ' + str(sell_qty).ljust(5, ' ') +
-#                                 ' ' + str(r['currency']).ljust(4, ' ') +
-#                                 ' ' + str(r['buy_price']).ljust(10, ' ') +
-#                                 ' ' + str(r['sell_price']).ljust(10, ' ') +
-#                                 ' ' + str(round((r['sell_price']*sell_qty*(1-float(g_trial_params['COMMISSION']))) - (r['buy_price']*sell_qty*(1+float(g_trial_params['COMMISSION']))),2)) # Profit
-#                                  + '\n')
                       sold_qty = sell(r['ticker'], sell_qty, r['sell_price'])
                       if sold_qty != sell_qty:
                           log('Error! Faild to sell necessary amount. ' + r['ticker'] + ', sold=' + str(sold_qty) + ', necessary=' + str(sell_qty))
                       update_statistic(res, 'Sell requests completed')
                       update_statistic(res, 'Stocks sold', sold_qty)
-                      update_balance(sold_qty * r['sell_price'] -
-                                     sold_qty * r['buy_price'] * float(g_trial_params['COMMISSION']) -
-                                     sold_qty * r['sell_price'] * float(g_trial_params['COMMISSION'])
+                      update_balance(sold_qty * r['lot'] * r['sell_price'] -
+                                     sold_qty * r['lot'] * r['buy_price'] * float(g_trial_params['COMMISSION']) -
+                                     sold_qty * r['lot'] * r['sell_price'] * float(g_trial_params['COMMISSION'])
                                      , r['currency'])
-                  if r['qty'] > sell_qty:
+                      log(r['ticker'] + ' sold: ' + str(sold_qty), g_trial+'/log.txt')
+                  if r['lot_qty'] > sell_qty:
                           f.write(r['time'].strftime('%Y-%m-%d %H:%M:%S') +
                          ' ' + str(r['ticker']).ljust(12, ' ') +
                          ' ' + str(r['figi']).ljust(12, ' ') +
-                         ' ' + str(r['qty']-sell_qty).ljust(5, ' ') +
+                         ' ' + str(r['lot_qty']-sell_qty).ljust(5, ' ') +
+                         ' ' + str(r['lot']).ljust(6, ' ') +
                          ' ' + str(r['currency']).ljust(4, ' ') +
                          ' ' + str(r['buy_price']).ljust(10, ' ') +
                          ' ' + str(r['type']).ljust(4, ' ') +
                          ' ' + str(r['sell_price']) + '\n')
     return res
 
-
-with open('delete_to_stop.txt', 'w') as stp_file:
-    stp_file.write(str(datetime.now())+'\n')
-with open('trials.txt', 'r') as trials_file:
-    trials = [line.strip() for line in trials_file]
-# Reading common parameters
-try:
-    with open('params.txt', 'r') as params_file:
-        g_params = {line.split('=')[0] : line.split('=')[1].strip() for line in params_file}
-except FileNotFoundError:
-    with open('params.txt', 'w') as params_file:
-        params_file.write('PARAM=VALUE')
-    print('params.txt created')
-    exit(0)
-last_iteration_start_time = datetime(2019, 12, 21, 15, 33, 0)
-log('Starting')
-f = open('token.txt', 'r')
-token = f.read()
-f.close()
-g_fmt = '%Y-%m-%dT%H:%M:%S.%f+03:00'
-g_not_available = []
-g_stock_price = {}
-while 2 > 1:
-    # No work at night
-    if datetime.now().hour < int(g_params['START_TIME']):
-        print('No work at night')
-        time.sleep(60)
-        should_i_stop()
-        continue
-
-    # Wait for time gap
-    sec_between = (datetime.now() - last_iteration_start_time).total_seconds()
-    if sec_between < int(g_params['TIME_GAP'])*60:
-        should_i_stop()
-        print('Pause for ' + str(int(g_params['TIME_GAP'])*60 - sec_between) + ' sec.')
-        time.sleep(60)
-        continue
-    last_iteration_start_time = datetime.now()
-
-    #Sandbox or PROD
-    client = openapi.sandbox_api_client(token)
-    # Process trials
+def show_all_stat():
+    global g_trial
+    with open('trials.txt', 'r') as trials_file:
+        trials = [line.strip() for line in trials_file]
     for trial in trials:
+        if not trial.rstrip(): #Skip empty rows
+            continue
         g_trial = trial
-        should_i_stop()
-        # Reading common parameters
+        output('\n' + 'Statistic:\n' + print_dict(get_statistic(), '          '))
+
+def trade():
+    global g_trial, g_params, g_trial_params, client, g_fmt, g_not_available, g_stock_price
+    
+    with open('delete_to_stop.txt', 'w') as stp_file:
+        stp_file.write(str(datetime.now())+'\n')
+    with open('trials.txt', 'r') as trials_file:
+        trials = [line.strip() for line in trials_file]
+    # Reading common parameters
+    try:
         with open('params.txt', 'r') as params_file:
             g_params = {line.split('=')[0] : line.split('=')[1].strip() for line in params_file}
-        # Reading trial parameters
-        if not os.path.exists(trial): os.makedirs(trial)
-        try:
-            with open(trial+'/trial_params.txt', 'r') as trial_params_file:
-                g_trial_params = {line.split('=')[0] : line.split('=')[1].strip() for line in trial_params_file}
-        except FileNotFoundError:
-            with open(trial+'/trial_params.txt', 'w') as trial_params_file:
-                trial_params_file.write('PARAM=VALUE')
-            output('trial_params.txt created')
+    except FileNotFoundError:
+        with open('params.txt', 'w') as params_file:
+            params_file.write('PARAM=VALUE')
+        print('params.txt created')
+        exit(0)
+    last_iteration_start_time = datetime(2019, 12, 21, 15, 33, 0)
+    log('Starting')
+    f = open('token.txt', 'r')
+    token = f.read()
+    f.close()
+    g_fmt = '%Y-%m-%dT%H:%M:%S.%f+03:00'
+    g_not_available = []
+    g_stock_price = {}
+    while 2 > 1:
+        # No work at night
+        if datetime.now().hour < int(g_params['START_TIME']):
+            print('No work at night')
+            time.sleep(60)
+            should_i_stop()
             continue
-        if float(get_balance('USD'))<1 and float(get_balance('EUR'))<1 and float(get_balance('RUB'))<50:
-            output('No money left')
-        elif datetime.now().hour < int(g_params['START_BUY_TIME']):
-            print('We are not buying in the morning')
-            g_not_available = []
-            g_stock_price = {}
-        else:
-            log('\n' + 'find_and_buy=\n' + print_dict(find_and_buy(), '             '))
-        log('\n' + 'check_and_sell=\n' + print_dict(check_and_sell(g_trial_params['PROFIT']), '               '))
-        log('\n' + 'check_requests=\n' + print_dict(check_requests(), '               '))
-        log('\n' + 'Statistic:\n' + print_dict(get_statistic(), '          '))
+
+        # Wait for time gap
+        sec_between = (datetime.now() - last_iteration_start_time).total_seconds()
+        if sec_between < int(g_params['TIME_GAP'])*60:
+            should_i_stop()
+            print('Pause for ' + str(int(g_params['TIME_GAP'])*60 - sec_between) + ' sec.')
+            time.sleep(60)
+            continue
+        last_iteration_start_time = datetime.now()
+
+        #Sandbox or PROD
+        client = openapi.api_client(token)
+        # Process trials
+        for trial in trials:
+            if not trial.rstrip(): #Skip empty rows
+                continue
+            g_trial = trial
+            should_i_stop()
+            # Reading common parameters
+            with open('params.txt', 'r') as params_file:
+                g_params = {line.split('=')[0] : line.split('=')[1].strip() for line in params_file}
+            # Reading trial parameters
+            if not os.path.exists(trial): os.makedirs(trial)
+            try:
+                with open(trial+'/trial_params.txt', 'r') as trial_params_file:
+                    g_trial_params = {line.split('=')[0] : line.split('=')[1].strip() for line in trial_params_file}
+            except FileNotFoundError:
+                with open(trial+'/trial_params.txt', 'w') as trial_params_file:
+                    trial_params_file.write('PARAM=VALUE')
+                output('trial_params.txt created')
+                continue
+            if float(get_balance('USD'))<1 and float(get_balance('EUR'))<1 and float(get_balance('RUB'))<50:
+                output('No money left')
+            elif datetime.now().hour < int(g_params['START_BUY_TIME']):
+                output('We are not buying in the morning')
+                g_not_available = []
+                g_stock_price = {}
+            elif g_trial_params['STOP_BUYING'] == 'Y':
+                output('Buying is stopped')
+            else:
+                log('\n' + 'find_and_buy=\n' + print_dict(find_and_buy(), '             '))
+            log('\n' + 'check_and_sell=\n' + print_dict(check_and_sell(g_trial_params['PROFIT']), '               '))
+            log('\n' + 'check_requests=\n' + print_dict(check_requests(), '               '))
+            log('\n' + 'Statistic:\n' + print_dict(get_statistic(), '          '))
+
+trade()
+#show_all_stat()
+##g_trial_params = {}
+##g_trial = 'PROD'
+##g_trial_params['COMMISSION'] = 0.0005
+##g_trial_params['ENVIRONMENT'] = 'PROD'
+##g_fmt = '%Y-%m-%dT%H:%M:%S.%f+03:00'
+##f = open('token.txt', 'r')
+##token = f.read()
+##f.close()
+##client = openapi.api_client(token)
+##check_requests()
+#print(get_bought())
 
