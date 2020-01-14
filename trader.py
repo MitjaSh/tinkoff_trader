@@ -90,6 +90,11 @@ def get_bought():
         return b
     return b
 
+def get_comission(p_amount):
+    v_amount = round(p_amount * float(g_trial_params['COMMISSION']), 2)
+    if v_amount < 0.01:
+        v_amount = 0.01
+    return v_amount
 
 def sell(ticker, lot_qty, price):
     part_qty = 0
@@ -108,7 +113,7 @@ def sell(ticker, lot_qty, price):
                             ' ' + str(b['currency']).ljust(4, ' ') +
                             ' ' + str(b['price']).ljust(10, ' ') +
                             ' ' + str(price).ljust(10, ' ') +
-                            ' ' + str(round((price*b['lot_qty']*b['lot']*(1-float(g_trial_params['COMMISSION']))) - (b['price']*b['lot_qty']*b['lot']*(1+float(g_trial_params['COMMISSION']))),2)) # Profit
+                            ' ' + str(round(price*b['lot_qty']*b['lot'] - get_comission(price*b['lot_qty']*b['lot']) - b['price']*b['lot_qty']*b['lot'] - get_comission(b['price']*b['lot_qty']*b['lot']),2)) # Profit
                                 + '\n')
             elif b['ticker'] == ticker:
                 with open(g_trial + '/sold.txt', 'a') as sf:
@@ -122,7 +127,7 @@ def sell(ticker, lot_qty, price):
                                 ' ' + str(b['currency']).ljust(4, ' ') +
                                 ' ' + str(b['price']).ljust(10, ' ') +
                                 ' ' + str(price).ljust(10, ' ') +
-                                ' ' + str(round((price*(lot_qty-part_qty)*b['lot']*(1-float(g_trial_params['COMMISSION']))) - (b['price']*(lot_qty-part_qty)*b['lot']*(1+float(g_trial_params['COMMISSION']))),2))  # Profit
+                                ' ' + str(round(price*(lot_qty-part_qty)*b['lot'] - get_comission(price*(lot_qty-part_qty)*b['lot']) - b['price']*(lot_qty-part_qty)*b['lot'] - get_comission(b['price']*(lot_qty-part_qty)*b['lot']) ,2))  # Profit
                                     + '\n')
 
                     f.write(b['time'].strftime('%Y-%m-%d %H:%M:%S') +
@@ -148,13 +153,16 @@ def get_sold():
     try:
         with open(g_trial + '/sold.txt', 'r') as f:
             for item in f:
-                b.append({'time':datetime(int(item[0:4]), int(item[5:7]), int(item[8:10]), int(item[11:13]), int(item[14:16]), int(item[17:19])),
+                b.append({'buy_time':datetime(int(item[0:4]), int(item[5:7]), int(item[8:10]), int(item[11:13]), int(item[14:16]), int(item[17:19])),
+                          'sell_time':datetime(int(item[21:25]), int(item[26:28]), int(item[29:31]), int(item[32:34]), int(item[35:37]), int(item[38:40])),
                           'ticker':item[41:54].rstrip(),
                           'figi':item[54:67].rstrip(),
                           'lot_qty':int(item[67:73]),
                           'lot':int(item[73:80]),
                           'currency':item[80:83],
-                          'profit':float(item[103:].rstrip())
+                          'buy_price':float(item[85:95]),
+                          'sell_price':float(item[96:107]),
+                          'profit':float(item[107:].rstrip())
                           })
     except FileNotFoundError:
         return b
@@ -202,6 +210,7 @@ def get_balance(currency):
     return b[currency]
 
 def get_statistic():
+    global g_bougth_value
     b = {}
     try:
         f = open(g_trial+'/balances.txt', 'r')
@@ -215,8 +224,15 @@ def get_statistic():
     b['Bought RUB'] = 0
     b['Bought USD'] = 0
     b['Bought EUR'] = 0
+    b['Bought value RUB'] = 0
+    b['Bought value USD'] = 0
+    b['Bought value EUR'] = 0
     for i in (get_bought()):
         b['Bought '+i['currency']] = b['Bought '+i['currency']] + i['price'] * i['lot_qty']* i['lot']
+        try:
+            b['Bought value '+i['currency']] = b['Bought value '+i['currency']] + g_bougth_value[i['ticker']] * i['lot_qty']* i['lot']
+        except KeyError:
+            None
     b['Balance&Bought RUB'] = float(b['Balance RUB']) + float(b['Bought RUB'])
     b['Balance&Bought USD'] = float(b['Balance USD']) + float(b['Bought USD'])
     b['Balance&Bought EUR'] = float(b['Balance EUR']) + float(b['Bought EUR'])
@@ -244,6 +260,7 @@ def find_and_buy():
         return result_statistic
     
     bought_list = get_bought()
+    sold_list = get_sold()
     result_statistic['Go to checks'] = 0
     # Cycle on stocks
     for i in (getattr(getattr(mkt, 'payload'), 'instruments')):
@@ -290,8 +307,14 @@ def find_and_buy():
             None
         
         # After all offline checks: one pause every four processed stocks
-        if result_statistic['Total'] % 4 == 0: #TBD Go to checks
+        if result_statistic['Total'] % int(g_params['SLEEP_PERIOD']) == 0: #TBD Go to checks
             time.sleep(1)
+
+        # Let's pause to sell PROD
+        if result_statistic['Total'] % int(g_params['SELL_PROD_PERIOD']) == 0:
+            sell_prod()
+            if g_trial_params['ENVIRONMENT'] == 'PROD':
+                sold_list = get_sold()
                 
         try:
             response = client.market.market_orderbook_get(getattr(i, 'figi'), 2)
@@ -337,6 +360,15 @@ def find_and_buy():
             update_statistic(result_statistic, 'Not enough money')
             continue
 
+        # Check for already sold
+        for sold in sold_list:
+            if sold['figi'] == getattr(i, 'figi') \
+               and (datetime.now() - sold['sell_time']).total_seconds() < float(g_trial_params['SELL_TRACKING_HOURS']) * 60 * 60 \
+               and price + 2 * get_comission(price) > sold['sell_price']:
+                output(getattr(i, 'ticker') + ' already sold')
+                update_statistic(result_statistic, 'Already sold')
+                continue
+
         # Apply checks
         update_statistic(result_statistic, 'Go to checks')
         with open(g_trial+'/check_curve.txt', 'r') as check_file:
@@ -358,9 +390,13 @@ def find_and_buy():
     return result_statistic
 
 def check_and_sell(profit):
+    global g_bougth_value
+    g_bougth_value = {}
     result_statistic = {}
+    n = 0
 
     for stock in get_bought():
+        n = n + 1
         try:
             response = client.market.market_orderbook_get(stock['figi'], 2)
         except Exception as err:
@@ -369,19 +405,22 @@ def check_and_sell(profit):
             continue
         try:
             price = float(getattr(getattr(getattr(response, 'payload'), 'bids')[0], 'price'))
+            g_bougth_value[stock['ticker']] = price
         except IndexError:
             output('IndexError: list index out of range')
             print(stock['ticker'] + ' ' + str(response) + '\n')
+            g_bougth_value[stock['ticker']] = float(getattr(getattr(response, 'payload'), 'last_price'))
             continue
 
-        if stock['price']*(1+float(g_trial_params['COMMISSION']))*(1+float(g_trial_params['PROFIT'])) <= \
-           price*(1-float(g_trial_params['COMMISSION'])):
+        if (stock['price'] + get_comission(stock['price'])) * (1+float(g_trial_params['PROFIT'])) <= \
+           price - get_comission(price):
             requested_qty = request(stock['ticker'], stock['figi'], stock['lot_qty'], stock['lot'], stock['currency'], stock['price'], 'Sell', price)
             if requested_qty > 0:
                 log('Request to sell: ' + stock['ticker'] + ' ' + str(stock['price']) + ' ' + str(price), g_trial+'/log.txt')
                 update_statistic(result_statistic, 'Sell requests events')
                 update_statistic(result_statistic, 'Sell requests stocks', requested_qty)
-        time.sleep(1)
+        if n % int(g_params['SLEEP_PERIOD']) == 0:
+            time.sleep(1)
     return result_statistic
 
 def request(ticker, p_figi, lot_qty, lot, currency, buy_price, req_type, sell_price=''):
@@ -534,8 +573,8 @@ def check_requests():
                       update_statistic(res, 'Sell requests completed')
                       update_statistic(res, 'Stocks sold', sold_qty)
                       update_balance(sold_qty * r['lot'] * r['sell_price'] -
-                                     sold_qty * r['lot'] * r['buy_price'] * float(g_trial_params['COMMISSION']) -
-                                     sold_qty * r['lot'] * r['sell_price'] * float(g_trial_params['COMMISSION'])
+                                     get_comission(sold_qty * r['lot'] * r['buy_price']) -
+                                     get_comission(sold_qty * r['lot'] * r['sell_price'])
                                      , r['currency'])
                       log(r['ticker'] + ' sold: ' + str(sold_qty), g_trial+'/log.txt')
                   if r['lot_qty'] > sell_qty:
@@ -560,8 +599,36 @@ def show_all_stat():
         g_trial = trial
         output('\n' + 'Statistic:\n' + print_dict(get_statistic(), '          '))
 
+def sell_prod():
+    global g_trial, g_trial_params, client
+    tmp_trial = g_trial
+    tmp_trial_params = g_trial_params
+
+    for trial in set(trials):
+        if not trial.rstrip(): #Skip empty rows
+            continue
+        with open(trial+'/trial_params.txt', 'r') as trial_params_file:
+            g_trial_params = {line.split('=')[0] : line.split('=')[1].strip() for line in trial_params_file}
+            g_trial = trial
+        if g_trial_params['ENVIRONMENT'] != 'PROD':
+            continue
+        # Sell
+        v_dict = {}
+        v_dict = check_and_sell(g_trial_params['PROFIT'])
+        if v_dict:
+            log('\n' + 'check_and_sell=\n' + print_dict(v_dict, '               '))
+        # Requests process
+        v_dict = {}
+        v_dict = check_requests()
+        if v_dict:
+            log('\n' + 'check_requests=\n' + print_dict(v_dict, '               '))
+        
+    # Return original environment
+    g_trial = tmp_trial
+    g_trial_params = tmp_trial_params  
+
 def trade():
-    global g_trial, g_params, g_trial_params, client, g_fmt, g_not_available, g_stock_price
+    global g_trial, g_params, g_trial_params, client, g_fmt, g_not_available, g_stock_price, trials, g_
     
     with open('delete_to_stop.txt', 'w') as stp_file:
         stp_file.write(str(datetime.now())+'\n')
@@ -622,9 +689,16 @@ def trade():
                     trial_params_file.write('PARAM=VALUE')
                 output('trial_params.txt created')
                 continue
-
-            log('\n' + 'check_and_sell=\n' + print_dict(check_and_sell(g_trial_params['PROFIT']), '               '))
-            log('\n' + 'check_requests=\n' + print_dict(check_requests(), '               '))
+            # Sell
+            v_dict = {}
+            v_dict = check_and_sell(g_trial_params['PROFIT'])
+            if v_dict:
+                log('\n' + 'check_and_sell=\n' + print_dict(v_dict, '               '))
+            # Requests process
+            v_dict = {}
+            v_dict = check_requests()
+            if v_dict:
+                log('\n' + 'check_requests=\n' + print_dict(v_dict, '               '))
             
             if float(get_balance('USD'))<1 and float(get_balance('EUR'))<1 and float(get_balance('RUB'))<50:
                 output('No money left')
@@ -636,8 +710,11 @@ def trade():
                 output('Buying is stopped')
             else:
                 log('\n' + 'find_and_buy=\n' + print_dict(find_and_buy(), '             '))
-            
-            log('\n' + 'check_requests=\n' + print_dict(check_requests(), '               '))
+            # Requests process
+            v_dict = {}
+            v_dict = check_requests()
+            if v_dict:
+                log('\n' + 'check_requests=\n' + print_dict(v_dict, '               '))
             log('\n' + 'Statistic:\n' + print_dict(get_statistic(), '          '))
 
 trade()
@@ -652,5 +729,4 @@ trade()
 ##f.close()
 ##client = openapi.api_client(token)
 ##check_requests()
-#print(get_bought())
-
+##print(get_sold())
