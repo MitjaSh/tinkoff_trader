@@ -6,7 +6,52 @@ import os
 
 
 
-def check_find_curve(figi, v_days, period, price, descent_perc = 2, advance_perc = 0.5):
+def check_find_curve(figi, v_days, period, price, descent_perc = 2, advance_perc = 0.5, times = 1):
+    time_to = datetime.now()
+    time_from = time_to + timedelta(days=-1 * v_days)    
+
+    try:
+        response = client.market.market_candles_get(figi,time_from.strftime(g_fmt),time_to.strftime(g_fmt),period)
+    except Exception as err:
+        output(figi + ' ' + str(err))
+        log(figi + ' ' + str(err))
+        return None
+
+        
+    candles = getattr(getattr(response, 'payload'), 'candles')
+    
+    res = {}
+    res['0 current_value'] = price
+    t = 1
+    stage = 'Advance ' + str(t)
+    for i in (sorted(candles, key=lambda d: getattr(d, 'time'), reverse=True)):
+        if stage == 'Advance ' + str(t) and t > 1 and getattr(i, 'c') > res[str(t-1) + '_high_value']:
+            res[str(t-1) + '_high_value'] = getattr(i, 'c')
+            res[str(t-1) + '_high_time'] = getattr(i, 'time')
+        elif stage == 'Advance ' + str(t) and getattr(i, 'c') < res['0 current_value'] / 100 * (100 - advance_perc):
+            res[str(t) + ' low_value'] = getattr(i, 'c')
+            res[str(t) + ' low_time'] = getattr(i, 'time')
+            stage = 'Descent ' + str(t)
+        elif stage == 'Descent ' + str(t) and getattr(i, 'c') < res[str(t) + ' low_value']:
+            res[str(t) + ' low_value'] = getattr(i, 'c')
+            res[str(t) + ' low_time'] = getattr(i, 'time')
+        elif stage == 'Descent ' + str(t) and getattr(i, 'c') > res['0 current_value'] / 100 * (100 + descent_perc) and t < times:
+            res[str(t) + '_high_value'] = getattr(i, 'c')
+            res[str(t) + '_high_time'] = getattr(i, 'time')
+            t += 1
+            stage = 'Advance ' + str(t)
+        elif stage == 'Descent ' + str(t) and getattr(i, 'c') > res['0 current_value'] / 100 * (100 + descent_perc) and t == times:
+            res[str(t) + '_high_value'] = getattr(i, 'c')
+            res[str(t) + '_high_time'] = getattr(i, 'time')
+            stage = 'Found'
+        elif stage == 'Found ' + str(t) and getattr(i, 'c') > res[str(t) + '_high_value'] and t == times:
+            res[str(t) + '_high_value'] = getattr(i, 'c')
+            res[str(t) + '_high_time'] = getattr(i, 'time')
+     
+    if stage == 'Found':
+        return res
+
+def check_find_curve_old(figi, v_days, period, price, descent_perc = 2, advance_perc = 0.5):
     time_to = datetime.now()
     time_from = time_to + timedelta(days=-1 * v_days)    
 
@@ -68,7 +113,7 @@ def buy(ticker, figi, lot_qty, lot, currency, price):
                    ' ' + str(ticker).ljust(12, ' ') +
                    ' ' + str(figi).ljust(12, ' ') +
                    ' ' + str(v_lot_qty).ljust(5, ' ') +
-                   ' ' + str(lot).ljust(6, ' ') +
+                   ' ' + str(lot).ljust(7, ' ') +
                    ' ' + str(currency).ljust(4, ' ') +
                    ' ' + str(price) + '\n')
     return price*v_lot_qty*lot
@@ -82,9 +127,9 @@ def get_bought():
                           'ticker':item[20:33].rstrip(),
                           'figi':item[33:46].rstrip(),
                           'lot_qty':int(float(item[46:52])),
-                          'lot':int(item[52:59]),
-                          'currency':item[59:62],
-                          'price':float(item[64:].rstrip())
+                          'lot':int(item[52:60]),
+                          'currency':item[60:63],
+                          'price':float(item[65:].rstrip())
                           })
     except FileNotFoundError:
         return b
@@ -109,7 +154,7 @@ def sell(ticker, lot_qty, price):
                             ' ' + str(b['ticker']).ljust(12, ' ') +
                             ' ' + str(b['figi']).ljust(12, ' ') +
                             ' ' + str(b['lot_qty']).ljust(5, ' ') +
-                            ' ' + str(b['lot']).ljust(6, ' ') +
+                            ' ' + str(b['lot']).ljust(7, ' ') +
                             ' ' + str(b['currency']).ljust(4, ' ') +
                             ' ' + str(b['price']).ljust(10, ' ') +
                             ' ' + str(price).ljust(10, ' ') +
@@ -123,7 +168,7 @@ def sell(ticker, lot_qty, price):
                                 ' ' + str(b['ticker']).ljust(12, ' ') +
                                 ' ' + str(b['figi']).ljust(12, ' ') +
                                 ' ' + str(lot_qty-part_qty).ljust(5, ' ') +
-                                ' ' + str(b['lot']).ljust(6, ' ') +
+                                ' ' + str(b['lot']).ljust(7, ' ') +
                                 ' ' + str(b['currency']).ljust(4, ' ') +
                                 ' ' + str(b['price']).ljust(10, ' ') +
                                 ' ' + str(price).ljust(10, ' ') +
@@ -134,7 +179,7 @@ def sell(ticker, lot_qty, price):
                    ' ' + str(b['ticker']).ljust(12, ' ') +
                    ' ' + str(b['figi']).ljust(12, ' ') +
                    ' ' + str(b['lot_qty']-lot_qty+part_qty).ljust(5, ' ') +
-                   ' ' + str(b['lot']).ljust(6, ' ') +
+                   ' ' + str(b['lot']).ljust(7, ' ') +
                    ' ' + str(b['currency']).ljust(4, ' ') +
                    ' ' + str(b['price']) + '\n')
                     part_qty = lot_qty
@@ -143,7 +188,7 @@ def sell(ticker, lot_qty, price):
                    ' ' + str(b['ticker']).ljust(12, ' ') +
                    ' ' + str(b['figi']).ljust(12, ' ') +
                    ' ' + str(b['lot_qty']).ljust(5, ' ') +
-                   ' ' + str(b['lot']).ljust(6, ' ') +
+                   ' ' + str(b['lot']).ljust(7, ' ') +
                    ' ' + str(b['currency']).ljust(4, ' ') +
                    ' ' + str(b['price']) + '\n')
     return part_qty
@@ -158,11 +203,11 @@ def get_sold():
                           'ticker':item[41:54].rstrip(),
                           'figi':item[54:67].rstrip(),
                           'lot_qty':int(item[67:73]),
-                          'lot':int(item[73:80]),
-                          'currency':item[80:83],
-                          'buy_price':float(item[85:95]),
-                          'sell_price':float(item[96:107]),
-                          'profit':float(item[107:].rstrip())
+                          'lot':int(item[73:81]),
+                          'currency':item[81:84],
+                          'buy_price':float(item[86:96]),
+                          'sell_price':float(item[97:108]),
+                          'profit':float(item[108:].rstrip())
                           })
     except FileNotFoundError:
         return b
@@ -361,13 +406,23 @@ def find_and_buy():
             continue
 
         # Check for already sold
+        v_already_sold_str = getattr(i, 'ticker') + ' already sold\n'
+        already_sold_flag = 'N'
         for sold in sold_list:
+##            if sold['figi'] == getattr(i, 'figi'):
+##                v_already_sold_str = v_already_sold_str + '   ' +str(sold['sell_time']) + ' ' + str(price) + ' ' + str(price + 2 * get_comission(price)) + '<>' + str(sold['sell_price']) + '\n'
             if sold['figi'] == getattr(i, 'figi') \
                and (datetime.now() - sold['sell_time']).total_seconds() < float(g_trial_params['SELL_TRACKING_HOURS']) * 60 * 60 \
                and price + 2 * get_comission(price) > sold['sell_price']:
-                output(getattr(i, 'ticker') + ' already sold')
-                update_statistic(result_statistic, 'Already sold')
-                continue
+                v_already_sold_str = v_already_sold_str + '   ' +str(sold['sell_time']) + ' ' + str(price) + ' ' + str(price + 2 * get_comission(price)) + '>' + str(sold['sell_price']) + '\n'
+                already_sold_flag = 'Y'
+        if already_sold_flag == 'Y':
+##            v_already_sold_str = v_already_sold_str + '   Already sold\n'
+##            if g_trial_params['ENVIRONMENT'] == 'PROD':
+##                log(v_already_sold_str, g_trial+'/Already_sold_log.txt')
+            log(v_already_sold_str)
+            update_statistic(result_statistic, 'Already sold')
+            continue
 
         # Apply checks
         update_statistic(result_statistic, 'Go to checks')
@@ -378,15 +433,18 @@ def find_and_buy():
                                  check_params['PERIOD'],
                                  price,
                                  int(check_params['DESCENT_PERC']),
-                                 int(check_params['ADVANCE_PERC']))
+                                 int(check_params['ADVANCE_PERC']),
+                                 int(check_params['TIMES']))
         if q:
             requested_qty = request(getattr(i, 'ticker'), getattr(i, 'figi'), lot_qty, lot, getattr(i, 'currency'), price, 'Buy')
             if requested_qty > 0:
-                log('Request to buy: ' + getattr(i, 'ticker') + ' ' + str(q) + '\n', g_trial+'/log.txt')
+                log('Request to buy: ' + getattr(i, 'ticker') + '\n' + print_dict(q, '                   ') + '\n', g_trial+'/log.txt')
                 update_statistic(result_statistic, 'Buy requests events')
                 update_statistic(result_statistic, 'Buy requests stocks', requested_qty)
                 # Update balance before request execution
                 update_balance(-1*lot_qty*lot*price, getattr(i, 'currency'))
+##                if g_trial_params['ENVIRONMENT'] == 'PROD':
+##                    log(v_already_sold_str, g_trial+'/Already_sold_log.txt')
     return result_statistic
 
 def check_and_sell(profit):
@@ -449,7 +507,7 @@ def request(ticker, p_figi, lot_qty, lot, currency, buy_price, req_type, sell_pr
                        ' ' + str(ticker).ljust(12, ' ') +
                        ' ' + str(p_figi).ljust(12, ' ') +
                        ' ' + str(lot_qty).ljust(5, ' ') +
-                       ' ' + str(lot).ljust(6, ' ') +
+                       ' ' + str(lot).ljust(7, ' ') +
                        ' ' + str(currency).ljust(4, ' ') +
                        ' ' + str(buy_price).ljust(10, ' ') +
                        ' ' + str(req_type).ljust(4, ' ')  +
@@ -468,13 +526,13 @@ def get_request():
                           'ticker':item[20:33].rstrip(),
                           'figi':item[33:46].rstrip(),
                           'lot_qty':int(float(item[46:52])),
-                          'lot':int(item[52:59]),
-                          'currency':item[59:62],
-                          'buy_price':float(item[64:75].rstrip()),
-                          'type':item[75:80].rstrip()
+                          'lot':int(item[52:60]),
+                          'currency':item[60:63],
+                          'buy_price':float(item[65:76].rstrip()),
+                          'type':item[76:81].rstrip()
                           }
-                if item[78:].rstrip():
-                    r['sell_price'] = float(item[80:].rstrip())
+                if item[81:].rstrip():
+                    r['sell_price'] = float(item[81:].rstrip())
                 b.append(r)
     except FileNotFoundError:
         return b
@@ -511,7 +569,7 @@ def check_requests():
                          ' ' + str(r['ticker']).ljust(12, ' ') +
                          ' ' + str(r['figi']).ljust(12, ' ') +
                          ' ' + str(r['lot_qty']).ljust(5, ' ') +
-                         ' ' + str(r['lot']).ljust(6, ' ') +
+                         ' ' + str(r['lot']).ljust(7, ' ') +
                          ' ' + str(r['currency']).ljust(4, ' ') +
                          ' ' + str(r['buy_price']).ljust(10, ' ') +
                          ' ' + str(r['type'].ljust(4, ' ')) + sell_price_str + '\n')
@@ -541,7 +599,7 @@ def check_requests():
                                   ' ' + str(r['ticker']).ljust(12, ' ') +
                                   ' ' + str(r['figi']).ljust(12, ' ') +
                                   ' ' + str(buy_qty).ljust(5, ' ') +
-                                  ' ' + str(r['lot']).ljust(6, ' ') +
+                                  ' ' + str(r['lot']).ljust(7, ' ') +
                                   ' ' + str(r['currency']).ljust(4, ' ') +
                                   ' ' + str(r['buy_price']).ljust(10, ' ') + '\n')
                       update_statistic(res, 'Buy requests completed')
@@ -552,7 +610,7 @@ def check_requests():
                          ' ' + str(r['ticker']).ljust(12, ' ') +
                          ' ' + str(r['figi']).ljust(12, ' ') +
                          ' ' + str(r['lot_qty']-buy_qty).ljust(5, ' ') +
-                         ' ' + str(r['lot']).ljust(6, ' ') +
+                         ' ' + str(r['lot']).ljust(7, ' ') +
                          ' ' + str(r['currency']).ljust(4, ' ') +
                          ' ' + str(r['buy_price']).ljust(10, ' ') +
                          ' ' + str(r['type']) + '\n')
@@ -582,7 +640,7 @@ def check_requests():
                          ' ' + str(r['ticker']).ljust(12, ' ') +
                          ' ' + str(r['figi']).ljust(12, ' ') +
                          ' ' + str(r['lot_qty']-sell_qty).ljust(5, ' ') +
-                         ' ' + str(r['lot']).ljust(6, ' ') +
+                         ' ' + str(r['lot']).ljust(7, ' ') +
                          ' ' + str(r['currency']).ljust(4, ' ') +
                          ' ' + str(r['buy_price']).ljust(10, ' ') +
                          ' ' + str(r['type']).ljust(4, ' ') +
