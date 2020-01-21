@@ -470,8 +470,8 @@ def check_and_sell(profit):
             g_bougth_value[stock['ticker']] = float(getattr(getattr(response, 'payload'), 'last_price'))
             continue
 
-        if (stock['price'] + get_comission(stock['price'])) * (1+float(g_trial_params['PROFIT'])) <= \
-           price - get_comission(price):
+        if (stock['price'] * stock['lot_qty'] * stock['lot'] + get_comission(stock['price'] * stock['lot_qty'] * stock['lot'])) * (1+float(g_trial_params['PROFIT'])) <= \
+           price * stock['lot_qty'] * stock['lot'] - get_comission(price * stock['lot_qty'] * stock['lot']):
             requested_qty = request(stock['ticker'], stock['figi'], stock['lot_qty'], stock['lot'], stock['currency'], stock['price'], 'Sell', price)
             if requested_qty > 0:
                 log('Request to sell: ' + stock['ticker'] + ' ' + str(stock['price']) + ' ' + str(price), g_trial+'/log.txt')
@@ -781,6 +781,7 @@ trade()
 ##g_trial = 'PROD'
 ##g_trial_params['COMMISSION'] = 0.0005
 ##g_trial_params['ENVIRONMENT'] = 'PROD'
+##g_trial_params['PROFIT'] = 0.01
 ##g_fmt = '%Y-%m-%dT%H:%M:%S.%f+03:00'
 ##f = open('token.txt', 'r')
 ##token = f.read()
