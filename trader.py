@@ -6,7 +6,7 @@ import os
 
 
 
-def check_find_curve(figi, v_days, period, price, descent_perc = 2, advance_perc = 0.5, times = 1):
+def check_find_curve_c(figi, v_days, period, price, descent_perc = 2, advance_perc = 0.5, times = 1):
     time_to = datetime.now()
     time_from = time_to + timedelta(days=-1 * v_days)    
 
@@ -14,7 +14,7 @@ def check_find_curve(figi, v_days, period, price, descent_perc = 2, advance_perc
         response = client.market.market_candles_get(figi,time_from.strftime(g_fmt),time_to.strftime(g_fmt),period)
     except Exception as err:
         output(figi + ' ' + str(err))
-        log(figi + ' ' + str(err))
+        log(figi + ' market_candles_get: ' + str(err), 'error_log.txt')
         return None
 
         
@@ -51,7 +51,7 @@ def check_find_curve(figi, v_days, period, price, descent_perc = 2, advance_perc
     if stage == 'Found':
         return res
 
-def check_find_curve_old(figi, v_days, period, price, descent_perc = 2, advance_perc = 0.5):
+def check_find_curve(figi, v_days, period, price, descent_perc = 2, advance_perc = 0.5, times = 1):
     time_to = datetime.now()
     time_from = time_to + timedelta(days=-1 * v_days)    
 
@@ -59,31 +59,76 @@ def check_find_curve_old(figi, v_days, period, price, descent_perc = 2, advance_
         response = client.market.market_candles_get(figi,time_from.strftime(g_fmt),time_to.strftime(g_fmt),period)
     except Exception as err:
         output(figi + ' ' + str(err))
-        log(figi + ' ' + str(err))
+        log(figi + ' market_candles_get: ' + str(err), 'error_log.txt')
         return None
 
         
     candles = getattr(getattr(response, 'payload'), 'candles')
     
     res = {}
-    res['current_value'] = price
-    stage = 'Advance'
+    res['0 current_value'] = price
+    t = 1
+    stage = 'Advance ' + str(t)
     for i in (sorted(candles, key=lambda d: getattr(d, 'time'), reverse=True)):
-        if stage == 'Advance' and getattr(i, 'c') < res['current_value'] / 100 * (100 - advance_perc):
-            res['low_value'] = getattr(i, 'c')
-            res['low_time'] = getattr(i, 'time')
-            stage = 'Descent'
-        elif stage == 'Descent' and getattr(i, 'c') < res['low_value']:
-            res['low_value'] = getattr(i, 'c')
-            res['low_time'] = getattr(i, 'time')
-        elif stage == 'Descent' and getattr(i, 'c') > res['current_value'] / 100 * (100 + descent_perc):
-            res['high_value'] = getattr(i, 'c')
-            res['high_time'] = getattr(i, 'time')
+        if stage == 'Advance ' + str(t) and t > 1 and getattr(i, 'h') > res[str(t-1) + '_high_value']:
+            res[str(t-1) + '_high_value'] = getattr(i, 'h')
+            res[str(t-1) + '_high_time'] = getattr(i, 'time')
+        # Several conditions may be true
+        if stage == 'Advance ' + str(t) and getattr(i, 'l') < res['0 current_value'] / 100 * (100 - advance_perc):
+            res[str(t) + ' low_value'] = getattr(i, 'l')
+            res[str(t) + ' low_time'] = getattr(i, 'time')
+            stage = 'Descent ' + str(t)
+        elif stage == 'Descent ' + str(t) and getattr(i, 'l') < res[str(t) + ' low_value']:
+            res[str(t) + ' low_value'] = getattr(i, 'l')
+            res[str(t) + ' low_time'] = getattr(i, 'time')
+        # Several conditions may be true    
+        if stage == 'Descent ' + str(t) and getattr(i, 'h') > res['0 current_value'] / 100 * (100 + descent_perc) and t < times:
+            res[str(t) + '_high_value'] = getattr(i, 'h')
+            res[str(t) + '_high_time'] = getattr(i, 'time')
+            t += 1
+            stage = 'Advance ' + str(t)
+        elif stage == 'Descent ' + str(t) and getattr(i, 'h') > res['0 current_value'] / 100 * (100 + descent_perc) and t == times:
+            res[str(t) + '_high_value'] = getattr(i, 'h')
+            res[str(t) + '_high_time'] = getattr(i, 'time')
             stage = 'Found'
-        elif stage == 'Found' and getattr(i, 'c') > res['high_value']:
-            res['high_value'] = getattr(i, 'c')
-            res['high_time'] = getattr(i, 'time')
+        elif stage == 'Found ' + str(t) and getattr(i, 'h') > res[str(t) + '_high_value'] and t == times:
+            res[str(t) + '_high_value'] = getattr(i, 'h')
+            res[str(t) + '_high_time'] = getattr(i, 'time')
+     
     if stage == 'Found':
+        return res
+
+def check_level(figi, start_period_days, end_period_days, period, high_level, p_high_level_qty, low_level, p_low_level_qty):
+    time_to = datetime.now() + timedelta(days=-1 * end_period_days)
+    time_from = datetime.now() + timedelta(days=-1 * start_period_days)
+    v_high_level_qty = 0
+    v_low_level_qty = 0
+
+    try:
+        response = client.market.market_candles_get(figi,time_from.strftime(g_fmt),time_to.strftime(g_fmt),period)
+    except Exception as err:
+        output(figi + ' ' + str(err))
+        log(figi + ' market_candles_get: ' + str(err), 'error_log.txt')
+        return None
+
+    candles = getattr(getattr(response, 'payload'), 'candles')
+    
+    res = {}
+    res['1 start_time'] = time_from
+    res['2 end_time'] = time_to
+    res['3 period'] = period
+    res['4 high_level'] = high_level
+    res['5 low_level'] = low_level
+    res['6 high_level_qty'] = 0
+    res['7 low_level_qty'] = 0
+    t = 1
+    for i in (sorted(candles, key=lambda d: getattr(d, 'time'), reverse=True)):
+        if getattr(i, 'h') >= high_level:
+            res['6 high_level_qty'] = res['6 high_level_qty'] + 1
+        if getattr(i, 'l') <= low_level:
+            res['7 low_level_qty'] = res['7 low_level_qty'] + 1
+            
+    if res['6 high_level_qty'] >= p_high_level_qty and res['7 low_level_qty'] >= p_low_level_qty:
         return res
 
 def should_i_stop():
@@ -300,13 +345,21 @@ def find_and_buy():
     try:
         mkt = client.market.market_stocks_get()
     except Exception as err:
-        output('Can''t ger stocks list: ' + str(err))
-        log('Can''t ger stocks list: ' + str(err))
+        output('Can''t get stocks list: ' + str(err))
+        log('Can''t get stocks list: ' + str(err), 'error_log.txt')
         return result_statistic
     
     bought_list = get_bought()
     sold_list = get_sold()
     result_statistic['Go to checks'] = 0
+    # Get my portfolio
+    try:
+        portfolio_response = client.portfolio.portfolio_get()
+    except Exception as err:
+        output('Can''t get my portfolio: ' + str(err))
+        log('Can''t get my portfolio: ' + str(err), 'error_log.txt')
+        return result_statistic
+    
     # Cycle on stocks
     for i in (getattr(getattr(mkt, 'payload'), 'instruments')):
         should_i_stop()
@@ -322,16 +375,8 @@ def find_and_buy():
             update_statistic(result_statistic, 'Already requested')
             continue
         # Check for my portfolio
-        try:
-            response = client.portfolio.portfolio_get()
-        except Exception as err:
-            output(getattr(i, 'ticker') + ' ' + str(err))
-            log(getattr(i, 'ticker') + ' ' + str(err))
-            update_statistic(result_statistic, 'Error')
-            continue
-        
         if g_trial_params['ENVIRONMENT'] == 'PROD' \
-           and getattr(i, 'figi') in [getattr(c, 'figi') for c in getattr(getattr(response, 'payload'), 'positions')]:
+           and getattr(i, 'figi') in [getattr(c, 'figi') for c in getattr(getattr(portfolio_response, 'payload'), 'positions')]:
             output(getattr(i, 'ticker') + ' in my investment portfolio')
             update_statistic(result_statistic, 'In my investment portfolio')
             continue
@@ -364,8 +409,8 @@ def find_and_buy():
         try:
             response = client.market.market_orderbook_get(getattr(i, 'figi'), 2)
         except Exception as err:
-            output(getattr(i, 'ticker') + ' ' + str(err))
-            log(getattr(i, 'ticker') + ' ' + str(err))
+            output(getattr(i, 'ticker') + ' market_orderbook_get: ' + str(err))
+            log(getattr(i, 'ticker') + ' market_orderbook_get: ' + str(err), 'error_log.txt')
             update_statistic(result_statistic, 'Error')
             continue
 
@@ -426,19 +471,71 @@ def find_and_buy():
 
         # Apply checks
         update_statistic(result_statistic, 'Go to checks')
-        with open(g_trial+'/check_curve.txt', 'r') as check_file:
-            check_params = {line.split('=')[0] : line.split('=')[1].strip() for line in check_file}
-            q = check_find_curve(getattr(i, 'figi'),
-                                 int(check_params['DAYS']),
-                                 check_params['PERIOD'],
-                                 price,
-                                 int(check_params['DESCENT_PERC']),
-                                 int(check_params['ADVANCE_PERC']),
-                                 int(check_params['TIMES']))
-        if q:
+        checks_pass = ''
+        try:
+            with open(g_trial+'/check_curve_c.txt', 'r') as check_file:
+                check_params = {line.split('=')[0] : line.split('=')[1].strip() for line in check_file}
+                q = check_find_curve_c(getattr(i, 'figi'),
+                                     int(check_params['DAYS']),
+                                     check_params['PERIOD'],
+                                     price,
+                                     int(check_params['DESCENT_PERC']),
+                                     int(check_params['ADVANCE_PERC']),
+                                     int(check_params['TIMES']))
+                if q:
+                    checks_pass = checks_pass + 'check_curve_c passed:\n' + print_dict(q, '                   ') + '\n'
+                    v_high_level = float(q['1_high_value'])
+                    v_low_level = float(q['1 low_value'])
+                else:
+                    checks_pass = ''
+                    continue
+        except FileNotFoundError:
+            None
+
+        try:
+            with open(g_trial+'/check_curve.txt', 'r') as check_file:
+                check_params = {line.split('=')[0] : line.split('=')[1].strip() for line in check_file}
+                q = check_find_curve(getattr(i, 'figi'),
+                                     int(check_params['DAYS']),
+                                     check_params['PERIOD'],
+                                     price,
+                                     int(check_params['DESCENT_PERC']),
+                                     int(check_params['ADVANCE_PERC']),
+                                     int(check_params['TIMES']))
+                if q:
+                    checks_pass = checks_pass + 'check_curve passed:\n' + print_dict(q, '                   ') + '\n'
+                    v_high_level = float(q['1_high_value'])
+                    v_low_level = float(q['1 low_value'])
+                else:
+                    checks_pass = ''
+                    continue
+        except FileNotFoundError:
+            None
+
+        try:
+            with open(g_trial+'/check_level.txt', 'r') as check_file:
+                check_params = {line.split('=')[0] : line.split('=')[1].strip() for line in check_file}
+                q = check_level(getattr(i, 'figi'),
+                                int(check_params['START_PEROD_DAYS']),
+                                int(check_params['END_PEROD_DAYS']),
+                                check_params['PERIOD'],
+                                v_high_level,
+                                int(check_params['HIGH_LEVEL_QTY']),
+                                v_low_level,
+                                int(check_params['LOW_LEVEL_QTY']),)
+                if q:
+                    checks_pass = checks_pass + 'check_level passed:\n' + print_dict(q, '                   ') + '\n'
+                else:
+                    checks_pass = ''
+                    continue
+        except FileNotFoundError:
+            None
+
+            
+        if checks_pass:
             requested_qty = request(getattr(i, 'ticker'), getattr(i, 'figi'), lot_qty, lot, getattr(i, 'currency'), price, 'Buy')
             if requested_qty > 0:
-                log('Request to buy: ' + getattr(i, 'ticker') + '\n' + print_dict(q, '                   ') + '\n', g_trial+'/log.txt')
+                log('Request to buy: ' + getattr(i, 'ticker') + '\n' + checks_pass + '\n', g_trial+'/log.txt')
                 update_statistic(result_statistic, 'Buy requests events')
                 update_statistic(result_statistic, 'Buy requests stocks', requested_qty)
                 # Update balance before request execution
@@ -458,8 +555,8 @@ def check_and_sell(profit):
         try:
             response = client.market.market_orderbook_get(stock['figi'], 2)
         except Exception as err:
-            output(stock['ticker'] + ' ' + str(err))
-            log(stock['ticker'] + ' ' + str(err))
+            output(stock['ticker'] + ' market_orderbook_get: ' + str(err))
+            log(stock['ticker'] + ' market_orderbook_get: ' + str(err), 'error_log.txt')
             continue
         try:
             price = float(getattr(getattr(getattr(response, 'payload'), 'bids')[0], 'price'))
@@ -496,7 +593,7 @@ def request(ticker, p_figi, lot_qty, lot, currency, buy_price, req_type, sell_pr
             log(order_response, g_trial+'/log.txt')
         except Exception as err: 
             output('Reqest error. ' + ticker + ' ' + req_type + ' ' + str(lot_qty) + ' lots: ' + str(err))
-            log('Reqest error. ' + ticker + ' ' + req_type + ' ' +str(lot_qty) + ' lots: ' + str(err))
+            log('Reqest error. ' + ticker + ' ' + req_type + ' ' +str(lot_qty) + ' lots: ' + str(err), 'error_log.txt')
             return 0
     elif g_trial_params['ENVIRONMENT'] == 'TEST':
         order_status = 'New'
@@ -554,7 +651,7 @@ def check_requests():
             my_portfolio = {getattr(c, 'figi'):int(getattr(c, 'balance')) for c in getattr(getattr(response, 'payload'), 'positions')}
         except Exception as err:
             output('Can''t get portfolio: ' + str(err))
-            log('Can''t get portfolio: ' + str(err))
+            log('Can''t get portfolio: ' + str(err), 'error_log.txt')
             return res
         
     with open(g_trial + '/request.txt', 'w') as f:
@@ -686,7 +783,7 @@ def sell_prod():
     g_trial_params = tmp_trial_params  
 
 def trade():
-    global g_trial, g_params, g_trial_params, client, g_fmt, g_not_available, g_stock_price, trials, g_
+    global g_trial, g_params, g_trial_params, client, g_fmt, g_not_available, g_stock_price, trials
     
     with open('delete_to_stop.txt', 'w') as stp_file:
         stp_file.write(str(datetime.now())+'\n')
@@ -775,17 +872,5 @@ def trade():
                 log('\n' + 'check_requests=\n' + print_dict(v_dict, '               '))
             log('\n' + 'Statistic:\n' + print_dict(get_statistic(), '          '))
 
-trade()
-#show_all_stat()
-##g_trial_params = {}
-##g_trial = 'PROD'
-##g_trial_params['COMMISSION'] = 0.0005
-##g_trial_params['ENVIRONMENT'] = 'PROD'
-##g_trial_params['PROFIT'] = 0.01
-##g_fmt = '%Y-%m-%dT%H:%M:%S.%f+03:00'
-##f = open('token.txt', 'r')
-##token = f.read()
-##f.close()
-##client = openapi.api_client(token)
-##check_requests()
-##print(get_sold())
+if __name__ == "__main__":
+    trade()
