@@ -5,7 +5,6 @@ import time
 import os
 
 
-
 def check_find_curve_c(figi, v_days, period, price, descent_perc = 2, advance_perc = 0.5, times = 1):
     time_to = datetime.now()
     time_from = time_to + timedelta(days=-1 * v_days)    
