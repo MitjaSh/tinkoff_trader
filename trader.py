@@ -1,3 +1,7 @@
+## 19.05.2020   Учимся покупать несколько акций #Buy_several_stocks
+## 21.05.2020   Комиссию из баланса вычитаем и при покупке и при продаже #Commission_during_buying
+## 11.08.2020   Засыпать, если Too Many Requests  #TooManyRequests_Sleep
+
 from openapi_client import openapi
 from datetime import datetime, timedelta
 from pytz import timezone
@@ -135,17 +139,25 @@ def should_i_stop():
         None
 
 def log(message, file_name='log.txt'):
-    f = open(file_name, 'a')
-    if file_name =='log.txt':
+    
+    if file_name =='log.txt' or file_name =='error_log.txt':
         try:
             trial_str = g_trial + '  '
         except NameError:
             trial_str = ''
     else:
         trial_str = ''
-    f.write(datetime.now().strftime('%Y-%m-%d %H:%M:%S')+ '  ' + trial_str + str(message) + '\n')
-    f.close()
+
     print(trial_str + str(message))
+    
+    if str(message).find('Reason: Too Many Requests') > 0 and file_name =='error_log.txt': #TooManyRequests_Sleep
+        print('Sleep')
+        time.sleep(5)
+    else:
+        f = open(file_name, 'a')
+        f.write(datetime.now().strftime('%Y-%m-%d %H:%M:%S')+ '  ' + trial_str + str(message) + '\n')
+        f.close()
+        
 
 def output(message):
     print(g_trial + ' ' + str(message))
@@ -426,9 +438,10 @@ def find_and_buy():
         try:
             price = float(getattr(getattr(getattr(response, 'payload'), 'asks')[0], 'price'))
             g_stock_price[getattr(i, 'ticker')] = price*lot
+            ask_qty = int(getattr(getattr(getattr(response, 'payload'), 'asks')[0], 'quantity'))
         except IndexError:
-            output('IndexError: list index out of range')
-            print(getattr(i, 'ticker') + ' ' + str(response))
+            output(getattr(i, 'ticker') + ' IndexError: list index out of range')
+            ##print(getattr(i, 'ticker') + ' ' + str(response))
             update_statistic(result_statistic, 'IndexError: list index out of range')
             continue
         
@@ -448,6 +461,13 @@ def find_and_buy():
             output(getattr(i, 'ticker') + ' ' + str(price) + '*' + str(lot) + ' ' + getattr(i, 'currency') + ' Not enough money')
             update_statistic(result_statistic, 'Not enough money')
             continue
+
+        #Buy_several_stocks
+        if price * lot * 2 <= float(get_balance(getattr(i, 'currency'))) \
+           and price * lot * 2 <= float(get_balance(getattr(i, 'currency'))) \
+           and price * lot * 2 <= float(g_trial_params['EXPENSIVE_USD']) and getattr(i, 'currency') in ['USD','EUR'] \
+           and ask_qty >= 2:
+            lot_qty = 2
 
         # Check for already sold
         v_already_sold_str = getattr(i, 'ticker') + ' already sold\n'
@@ -532,13 +552,14 @@ def find_and_buy():
 
             
         if checks_pass:
+##            log('Go to request to buy: ' + getattr(i, 'ticker') + ', ' + str(ask_qty), g_trial+'/log.txt')
             requested_qty = request(getattr(i, 'ticker'), getattr(i, 'figi'), lot_qty, lot, getattr(i, 'currency'), price, 'Buy')
             if requested_qty > 0:
                 log('Request to buy: ' + getattr(i, 'ticker') + '\n' + checks_pass + '\n', g_trial+'/log.txt')
                 update_statistic(result_statistic, 'Buy requests events')
                 update_statistic(result_statistic, 'Buy requests stocks', requested_qty)
                 # Update balance before request execution
-                update_balance(-1*lot_qty*lot*price, getattr(i, 'currency'))
+                update_balance(-1*(lot_qty*lot*price + get_comission(lot_qty*lot*price)), getattr(i, 'currency')) #Commission_during_buying
 ##                if g_trial_params['ENVIRONMENT'] == 'PROD':
 ##                    log(v_already_sold_str, g_trial+'/Already_sold_log.txt')
     return result_statistic
@@ -671,7 +692,8 @@ def check_requests():
                          ' ' + str(r['type'].ljust(4, ' ')) + sell_price_str + '\n')
                       update_statistic(res, 'Rejected requests')
                       # Money returning
-                      update_balance(r['lot_qty'] * r['lot'] * r['buy_price'], r['currency'])
+                      if r['type'] == 'Buy':
+                          update_balance(r['lot_qty'] * r['lot'] * r['buy_price'] + get_comission(r['lot_qty'] * r['lot'] * r['buy_price']), r['currency']) #Commission_during_buying
               elif r['type'] == 'Buy':
                   if g_trial_params['ENVIRONMENT'] == 'PROD':
                       try:
@@ -727,7 +749,7 @@ def check_requests():
                       update_statistic(res, 'Sell requests completed')
                       update_statistic(res, 'Stocks sold', sold_qty)
                       update_balance(sold_qty * r['lot'] * r['sell_price'] -
-                                     get_comission(sold_qty * r['lot'] * r['buy_price']) -
+##                                     get_comission(sold_qty * r['lot'] * r['buy_price']) - #Commission_during_buying
                                      get_comission(sold_qty * r['lot'] * r['sell_price'])
                                      , r['currency'])
                       log(r['ticker'] + ' sold: ' + str(sold_qty), g_trial+'/log.txt')
