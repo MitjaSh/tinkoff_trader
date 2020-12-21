@@ -1,6 +1,7 @@
 ## 19.05.2020   Учимся покупать несколько акций #Buy_several_stocks
 ## 21.05.2020   Комиссию из баланса вычитаем и при покупке и при продаже #Commission_during_buying
 ## 11.08.2020   Засыпать, если Too Many Requests  #TooManyRequests_Sleep
+## 21.12.2020   seconds->total_seconds: if (datetime.now()-r['time']).total_seconds() > 60*60*24: # Expires after 24 hours
 
 from openapi_client import openapi
 from datetime import datetime, timedelta
@@ -375,6 +376,12 @@ def find_and_buy():
     for i in (getattr(getattr(mkt, 'payload'), 'instruments')):
         should_i_stop()
         update_statistic(result_statistic, 'Total')
+
+        #Skip old Tickers
+        if getattr(i, 'ticker')[-3:] == 'old':
+            output(getattr(i, 'ticker') + ' old ticker')
+            update_statistic(result_statistic, 'Old ticker')
+            continue
         
         # Check for already requested and bought
         if getattr(i, 'ticker') in [c['ticker'] for c in bought_list]:
@@ -406,7 +413,7 @@ def find_and_buy():
                 continue
         except KeyError:
             None
-        
+       
         # After all offline checks: one pause every four processed stocks
         if result_statistic['Total'] % int(g_params['SLEEP_PERIOD']) == 0: #TBD Go to checks
             time.sleep(1)
@@ -559,7 +566,10 @@ def find_and_buy():
                 update_statistic(result_statistic, 'Buy requests events')
                 update_statistic(result_statistic, 'Buy requests stocks', requested_qty)
                 # Update balance before request execution
+                log_str = 'Update balance: ' + str(get_balance(getattr(i, 'currency'))) + ' - ' + str(lot_qty*lot*price + get_comission(lot_qty*lot*price))
                 update_balance(-1*(lot_qty*lot*price + get_comission(lot_qty*lot*price)), getattr(i, 'currency')) #Commission_during_buying
+                log_str = log_str + ' = ' + str(get_balance(getattr(i, 'currency')))
+                log(log_str, g_trial+'/log.txt')
 ##                if g_trial_params['ENVIRONMENT'] == 'PROD':
 ##                    log(v_already_sold_str, g_trial+'/Already_sold_log.txt')
     return result_statistic
@@ -657,6 +667,7 @@ def get_request():
 
 
 def check_requests():
+    #log('In check_requests', 'debug.txt') # TBD
     res = {}
     rr = get_request()
     bought = {} # Already bought
@@ -676,7 +687,7 @@ def check_requests():
         
     with open(g_trial + '/request.txt', 'w') as f:
         for r in rr:
-              if (datetime.now()-r['time']).seconds > 60*60*24: # Expires after 24 hours
+              if (datetime.now()-r['time']).total_seconds() > 60*60*24: # Expires after 24 hours
                   with open(g_trial + '/rejected_requests.txt', 'a') as rf:
                       try:
                           sell_price_str = ' ' + str(r['sell_price']).ljust(10, ' ')
@@ -748,11 +759,14 @@ def check_requests():
                           log('Error! Faild to sell necessary amount. ' + r['ticker'] + ', sold=' + str(sold_qty) + ', necessary=' + str(sell_qty))
                       update_statistic(res, 'Sell requests completed')
                       update_statistic(res, 'Stocks sold', sold_qty)
+                      log_str = 'Update balance: ' + str(get_balance(r['currency'])) + ' + ' + str(sold_qty * r['lot'] * r['sell_price'] - get_comission(sold_qty * r['lot'] * r['sell_price']))
                       update_balance(sold_qty * r['lot'] * r['sell_price'] -
 ##                                     get_comission(sold_qty * r['lot'] * r['buy_price']) - #Commission_during_buying
                                      get_comission(sold_qty * r['lot'] * r['sell_price'])
                                      , r['currency'])
                       log(r['ticker'] + ' sold: ' + str(sold_qty), g_trial+'/log.txt')
+                      log_str = log_str + ' = ' + str(get_balance(r['currency']))
+                      log(log_str, g_trial+'/log.txt')
                   if r['lot_qty'] > sell_qty:
                           f.write(r['time'].strftime('%Y-%m-%d %H:%M:%S') +
                          ' ' + str(r['ticker']).ljust(12, ' ') +
