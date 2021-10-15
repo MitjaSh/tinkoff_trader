@@ -76,4 +76,6 @@ def show_table(p_currency, p_target):
     out_put('Total:     '+footer+'\n', p_target)
 
 
-show_table('USD', 'table.txt')
+show_table('USD', 'table_usd.txt')
+show_table('RUB', 'table_rub.txt')
+

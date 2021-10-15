@@ -2,6 +2,9 @@
 ## 21.05.2020   Комиссию из баланса вычитаем и при покупке и при продаже #Commission_during_buying
 ## 11.08.2020   Засыпать, если Too Many Requests  #TooManyRequests_Sleep
 ## 21.12.2020   seconds->total_seconds: if (datetime.now()-r['time']).total_seconds() > 60*60*24: # Expires after 24 hours
+## 03.09.2021   Skip 'min_price_increment': None #Skip 'min_price_increment': None
+##              #SellStocksWithLoss
+##              Mind spread #MindSpread
 
 from openapi_client import openapi
 from datetime import datetime, timedelta
@@ -364,6 +367,12 @@ def find_and_buy():
     bought_list = get_bought()
     sold_list = get_sold()
     result_statistic['Go to checks'] = 0
+
+    try: #MindSpread
+        v_max_spread = float(g_trial_params['MAX_SPREAD'])
+    except KeyError:
+        v_max_spread = 1000000
+        
     # Get my portfolio
     try:
         portfolio_response = client.portfolio.portfolio_get()
@@ -381,6 +390,12 @@ def find_and_buy():
         if getattr(i, 'ticker')[-3:] == 'old':
             output(getattr(i, 'ticker') + ' old ticker')
             update_statistic(result_statistic, 'Old ticker')
+            continue
+
+        #Skip 'min_price_increment': None
+        if getattr(i, 'min_price_increment') == None:
+            output(getattr(i, 'ticker') + ' min_price_increment: None')
+            update_statistic(result_statistic, 'Min_price_increment: None')
             continue
         
         # Check for already requested and bought
@@ -443,36 +458,44 @@ def find_and_buy():
         lot = int(getattr(i, 'lot'))
         # The Cheapest offer in orderbook
         try:
-            price = float(getattr(getattr(getattr(response, 'payload'), 'asks')[0], 'price'))
-            g_stock_price[getattr(i, 'ticker')] = price*lot
+            ask_price = float(getattr(getattr(getattr(response, 'payload'), 'asks')[0], 'price'))
+            g_stock_price[getattr(i, 'ticker')] = ask_price*lot
             ask_qty = int(getattr(getattr(getattr(response, 'payload'), 'asks')[0], 'quantity'))
+            bid_price = float(getattr(getattr(getattr(response, 'payload'), 'bids')[0], 'price')) #MindSpread
         except IndexError:
             output(getattr(i, 'ticker') + ' IndexError: list index out of range')
             ##print(getattr(i, 'ticker') + ' ' + str(response))
             update_statistic(result_statistic, 'IndexError: list index out of range')
             continue
         
-        if not price:
+        if not ask_price:
             output('No price')
             print(str(response))
             update_statistic(result_statistic, 'No price')
             continue
 
-        if (price * lot > float(g_trial_params['EXPENSIVE_USD']) and getattr(i, 'currency') in ['USD','EUR']) \
-                    or (price * lot > float(g_trial_params['EXPENSIVE_RUB']) and getattr(i, 'currency') == 'RUB'):
-            output(getattr(i, 'ticker') + ' ' + str(price) + '*' + str(lot) + ' ' + getattr(i, 'currency') + ' Too expensive')
+        
+
+        if (ask_price * lot > float(g_trial_params['EXPENSIVE_USD']) and getattr(i, 'currency') in ['USD','EUR']) \
+                    or (ask_price * lot > float(g_trial_params['EXPENSIVE_RUB']) and getattr(i, 'currency') == 'RUB'):
+            output(getattr(i, 'ticker') + ' ' + str(ask_price) + '*' + str(lot) + ' ' + getattr(i, 'currency') + ' Too expensive')
             update_statistic(result_statistic, 'Too expensive ' + getattr(i, 'currency'))
             continue
 
-        if price * lot > float(get_balance(getattr(i, 'currency'))):
-            output(getattr(i, 'ticker') + ' ' + str(price) + '*' + str(lot) + ' ' + getattr(i, 'currency') + ' Not enough money')
+        if ask_price * lot > float(get_balance(getattr(i, 'currency'))):
+            output(getattr(i, 'ticker') + ' ' + str(ask_price) + '*' + str(lot) + ' ' + getattr(i, 'currency') + ' Not enough money')
             update_statistic(result_statistic, 'Not enough money')
             continue
 
+        if (ask_price-bid_price)/ask_price > v_max_spread: #MindSpread
+            output(getattr(i, 'ticker') + ': ' + str(ask_price) + '-' + str(bid_price) + ' Spread too wide')
+            update_statistic(result_statistic, 'Spread too wide')
+            continue
+
         #Buy_several_stocks
-        if price * lot * 2 <= float(get_balance(getattr(i, 'currency'))) \
-           and price * lot * 2 <= float(get_balance(getattr(i, 'currency'))) \
-           and price * lot * 2 <= float(g_trial_params['EXPENSIVE_USD']) and getattr(i, 'currency') in ['USD','EUR'] \
+        if ask_price * lot * 2 <= float(get_balance(getattr(i, 'currency'))) \
+           and ask_price * lot * 2 <= float(get_balance(getattr(i, 'currency'))) \
+           and ask_price * lot * 2 <= float(g_trial_params['EXPENSIVE_USD']) and getattr(i, 'currency') in ['USD','EUR'] \
            and ask_qty >= 2:
             lot_qty = 2
 
@@ -481,11 +504,11 @@ def find_and_buy():
         already_sold_flag = 'N'
         for sold in sold_list:
 ##            if sold['figi'] == getattr(i, 'figi'):
-##                v_already_sold_str = v_already_sold_str + '   ' +str(sold['sell_time']) + ' ' + str(price) + ' ' + str(price + 2 * get_comission(price)) + '<>' + str(sold['sell_price']) + '\n'
+##                v_already_sold_str = v_already_sold_str + '   ' +str(sold['sell_time']) + ' ' + str(ask_price) + ' ' + str(ask_price + 2 * get_comission(ask_price)) + '<>' + str(sold['sell_price']) + '\n'
             if sold['figi'] == getattr(i, 'figi') \
                and (datetime.now() - sold['sell_time']).total_seconds() < float(g_trial_params['SELL_TRACKING_HOURS']) * 60 * 60 \
-               and price + 2 * get_comission(price) > sold['sell_price']:
-                v_already_sold_str = v_already_sold_str + '   ' +str(sold['sell_time']) + ' ' + str(price) + ' ' + str(price + 2 * get_comission(price)) + '>' + str(sold['sell_price']) + '\n'
+               and ask_price + 2 * get_comission(ask_price) > sold['sell_price']:
+                v_already_sold_str = v_already_sold_str + '   ' +str(sold['sell_time']) + ' ' + str(ask_price) + ' ' + str(ask_price + 2 * get_comission(ask_price)) + '>' + str(sold['sell_price']) + '\n'
                 already_sold_flag = 'Y'
         if already_sold_flag == 'Y':
 ##            v_already_sold_str = v_already_sold_str + '   Already sold\n'
@@ -504,7 +527,7 @@ def find_and_buy():
                 q = check_find_curve_c(getattr(i, 'figi'),
                                      int(check_params['DAYS']),
                                      check_params['PERIOD'],
-                                     price,
+                                     ask_price,
                                      int(check_params['DESCENT_PERC']),
                                      int(check_params['ADVANCE_PERC']),
                                      int(check_params['TIMES']))
@@ -524,7 +547,7 @@ def find_and_buy():
                 q = check_find_curve(getattr(i, 'figi'),
                                      int(check_params['DAYS']),
                                      check_params['PERIOD'],
-                                     price,
+                                     ask_price,
                                      int(check_params['DESCENT_PERC']),
                                      int(check_params['ADVANCE_PERC']),
                                      int(check_params['TIMES']))
@@ -560,14 +583,14 @@ def find_and_buy():
             
         if checks_pass:
 ##            log('Go to request to buy: ' + getattr(i, 'ticker') + ', ' + str(ask_qty), g_trial+'/log.txt')
-            requested_qty = request(getattr(i, 'ticker'), getattr(i, 'figi'), lot_qty, lot, getattr(i, 'currency'), price, 'Buy')
+            requested_qty = request(getattr(i, 'ticker'), getattr(i, 'figi'), lot_qty, lot, getattr(i, 'currency'), ask_price, 'Buy')
             if requested_qty > 0:
                 log('Request to buy: ' + getattr(i, 'ticker') + '\n' + checks_pass + '\n', g_trial+'/log.txt')
                 update_statistic(result_statistic, 'Buy requests events')
                 update_statistic(result_statistic, 'Buy requests stocks', requested_qty)
                 # Update balance before request execution
-                log_str = 'Update balance: ' + str(get_balance(getattr(i, 'currency'))) + ' - ' + str(lot_qty*lot*price + get_comission(lot_qty*lot*price))
-                update_balance(-1*(lot_qty*lot*price + get_comission(lot_qty*lot*price)), getattr(i, 'currency')) #Commission_during_buying
+                log_str = 'Update balance: ' + str(get_balance(getattr(i, 'currency'))) + ' - ' + str(lot_qty*lot*ask_price + get_comission(lot_qty*lot*ask_price))
+                update_balance(-1*(lot_qty*lot*ask_price + get_comission(lot_qty*lot*ask_price)), getattr(i, 'currency')) #Commission_during_buying
                 log_str = log_str + ' = ' + str(get_balance(getattr(i, 'currency')))
                 log(log_str, g_trial+'/log.txt')
 ##                if g_trial_params['ENVIRONMENT'] == 'PROD':
@@ -580,7 +603,22 @@ def check_and_sell(profit):
     result_statistic = {}
     n = 0
 
-    for stock in get_bought():
+    try: #SellStocksWithLoss
+        v_loss_threshold = float(g_trial_params['LOSS'])
+    except KeyError:
+        v_loss_threshold = 0
+
+    try: #SellStocksWithLoss
+        v_max_loss = float(g_trial_params['MAX_LOSS'])
+    except KeyError:
+        v_max_loss = 0
+
+    try: #MindSpread
+        v_max_spread = float(g_trial_params['MAX_SPREAD'])
+    except KeyError:
+        v_max_spread = 1000000
+
+    for stock in get_bought(): 
         n = n + 1
         try:
             response = client.market.market_orderbook_get(stock['figi'], 2)
@@ -589,8 +627,9 @@ def check_and_sell(profit):
             log(stock['ticker'] + ' market_orderbook_get: ' + str(err), 'error_log.txt')
             continue
         try:
-            price = float(getattr(getattr(getattr(response, 'payload'), 'bids')[0], 'price'))
-            g_bougth_value[stock['ticker']] = price
+            bid_price = float(getattr(getattr(getattr(response, 'payload'), 'bids')[0], 'price'))
+            g_bougth_value[stock['ticker']] = bid_price
+            ask_price = float(getattr(getattr(getattr(response, 'payload'), 'asks')[0], 'price')) #MindSpread
         except IndexError:
             output('IndexError: list index out of range')
             print(stock['ticker'] + ' ' + str(response) + '\n')
@@ -598,14 +637,27 @@ def check_and_sell(profit):
             continue
 
         if (stock['price'] * stock['lot_qty'] * stock['lot'] + get_comission(stock['price'] * stock['lot_qty'] * stock['lot'])) * (1+float(g_trial_params['PROFIT'])) <= \
-           price * stock['lot_qty'] * stock['lot'] - get_comission(price * stock['lot_qty'] * stock['lot']):
-            requested_qty = request(stock['ticker'], stock['figi'], stock['lot_qty'], stock['lot'], stock['currency'], stock['price'], 'Sell', price)
+           bid_price * stock['lot_qty'] * stock['lot'] - get_comission(bid_price * stock['lot_qty'] * stock['lot']):
+            requested_qty = request(stock['ticker'], stock['figi'], stock['lot_qty'], stock['lot'], stock['currency'], stock['price'], 'Sell', bid_price)
             if requested_qty > 0:
-                log('Request to sell: ' + stock['ticker'] + ' ' + str(stock['price']) + ' ' + str(price), g_trial+'/log.txt')
+                log('Request to sell: ' + stock['ticker'] + ' ' + str(stock['price']) + ' ' + str(bid_price), g_trial+'/log.txt')
+                update_statistic(result_statistic, 'Sell requests events')
+                update_statistic(result_statistic, 'Sell requests stocks', requested_qty)
+        #SellStocksWithLoss
+        elif v_loss_threshold > 0 and \
+               (stock['price'] * stock['lot_qty'] * stock['lot'] - get_comission(stock['price'] * stock['lot_qty'] * stock['lot'])) > \
+               (bid_price * stock['lot_qty'] * stock['lot'] + get_comission(bid_price * stock['lot_qty'] * stock['lot'])) * (1+v_loss_threshold) and \
+               (stock['price'] * stock['lot_qty'] * stock['lot'] - get_comission(stock['price'] * stock['lot_qty'] * stock['lot'])) < \
+               (bid_price * stock['lot_qty'] * stock['lot'] + get_comission(bid_price * stock['lot_qty'] * stock['lot'])) * (1+v_max_loss) and \
+               (ask_price-bid_price)/ask_price <= v_max_spread: 
+            #log(stock['ticker'] + ' SellStocksWithLoss: old_price=' + str(stock['price']) + ', new=' + str(bid_price) + ' n%=' + str((bid_price * stock['lot_qty'] * stock['lot'] + get_comission(bid_price * stock['lot_qty'] * stock['lot'])) * (1+v_loss_threshold)), g_trial+'/log.txt')
+            requested_qty = request(stock['ticker'], stock['figi'], stock['lot_qty'], stock['lot'], stock['currency'], stock['price'], 'Sell', bid_price)
+            if requested_qty > 0:
+                log('Request to sell with loss: ' + stock['ticker'] + ' ' + str(stock['price']) + ' ' + str(bid_price), g_trial+'/log.txt')
                 update_statistic(result_statistic, 'Sell requests events')
                 update_statistic(result_statistic, 'Sell requests stocks', requested_qty)
         if n % int(g_params['SLEEP_PERIOD']) == 0:
-            time.sleep(1)
+            time.sleep(1) 
     return result_statistic
 
 def request(ticker, p_figi, lot_qty, lot, currency, buy_price, req_type, sell_price=''):
