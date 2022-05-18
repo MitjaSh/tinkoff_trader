@@ -6,6 +6,6 @@ cp C:/py/tinkoff_trader/PROD/sold.txt C:/git/tinkoff_trader/PROD
 cd C:/git/tinkoff_trader
 git add .
 git status
-git commit -m "Actual PROD files"
+git commit -m "readme.txt"
 git push https://place-token-here@github.com/MitjaSh/tinkoff_trader.git
 echo Finished
