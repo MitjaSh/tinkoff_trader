@@ -1,0 +1,7 @@
+2023-01-20 16:11:01 TAL          BBG0016XJ8S0 2     1       USD  8.2        Buy            
+2023-01-20 16:11:02 SCHW         BBG000BSLZY7 1     1       USD  76.52      Buy            
+2023-01-20 16:13:18 LUMN         BBG000BGLRN3 2     1       USD  5.1        Buy            
+2023-01-20 16:13:35 NVAX         BBG000NVSBL7 2     1       USD  11.79      Buy            
+2023-01-20 16:13:39 FSR          BBG00LPWLFD4 1     1       USD  6.74       Buy            
+2023-01-20 16:15:00 RKLB         BBG00Y61SZL5 1     1       USD  4.86       Buy            
+2023-01-20 16:16:50 LSNG         BBG000NLC9Z6 1     100     RUB  10.37      Buy            

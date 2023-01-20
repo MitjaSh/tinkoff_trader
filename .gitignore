@@ -5,6 +5,7 @@ sandbox_token.txt
 *.xls
 table*.txt
 delete_to_stop.txt
+actual_data_to_guthub.*
 
 __pycache__/
 CURVE_LEVEL/
